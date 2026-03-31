@@ -1,0 +1,13 @@
+target/
+build/
+*.jar
+*.class
+.idea/
+*.iml
+.gradle/
+.settings/
+.project
+.classpath
+bin/
+out/
+.claude/settings.local.json
