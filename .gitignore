@@ -12,3 +12,4 @@ bin/
 out/
 .claude/settings.local.json
 .commit-message
+minecraft-server/

@@ -54,6 +54,7 @@ public class SwarmVsHunter extends JavaPlugin {
             fieldOrigin.setZ(fieldOrigin.getBlockZ() - fieldSize / 2);
             generateField(fieldOrigin, fieldSize);
             player.sendMessage(ChatColor.GREEN + "フィールド生成完了！");
+            gameState = GameState.PLAYING;
             // テレポート: フィールド中央に
             Location center = fieldOrigin.clone().add(fieldSize / 2.0, 1, fieldSize / 2.0);
             player.teleport(center);
