@@ -27,11 +27,20 @@ Swarm(HP1、mobに変身して群れで襲う)とHunter(鉄装備、3分生存or
 
 ```bash
 # ビルド（JAVA_HOMEがJava11を指しているためMavenビルド時に上書き必須）
-JAVA_HOME="C:/Users/yufuj/AppData/Local/Programs/Microsoft/jdk-17.0.15.6-hotspot" mvn clean package
+JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 
 # 生成されるjar: target/swarm-vs-hunter-3.0.jar
 # jarをサーバーのplugins/にコピーしてサーバー再起動で反映
 ```
+
+## テスト方針
+
+- タスク実装後は対応するテストを書く（または既存テストを更新）
+- `JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn test` で全テスト通過を確認してからコミットする
+- 実装完了後、Sonnetサブエージェントを起動してレビューさせる:
+  1. `mvn test` 実行 → 全テスト通過確認
+  2. requirements.md と実装コードの差分チェック
+  3. 問題があれば報告
 
 ## 主要なゲームメカニクス（実装時の注意点）
 
