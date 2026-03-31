@@ -11,3 +11,4 @@ build/
 bin/
 out/
 .claude/settings.local.json
+.commit-message
