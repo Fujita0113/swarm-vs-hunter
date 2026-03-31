@@ -25,13 +25,10 @@ Swarm(HP1、mobに変身して群れで襲う)とHunter(鉄装備、3分生存or
 ## ビルド・実行
 
 ```bash
-# ビルド（Maven の場合）
-mvn clean package
+# ビルド（JAVA_HOMEがJava11を指しているためMavenビルド時に上書き必須）
+JAVA_HOME="C:/Users/yufuj/AppData/Local/Programs/Microsoft/jdk-17.0.15.6-hotspot" mvn clean package
 
-# ビルド（Gradle の場合）
-./gradlew build
-
-# 生成されるjar: target/ または build/libs/ 配下
+# 生成されるjar: target/swarm-vs-hunter-3.0.jar
 # jarをサーバーのplugins/にコピーしてサーバー再起動で反映
 ```
 
