@@ -11,29 +11,31 @@ Minecraft 2人対戦ミニゲーム「Swarm vs Hunter」のSpigot/Paperプラグ
 
 - Java 21
 - Maven
-- Git Bash (Windows) または bash (Linux/Mac)
 
 ## セットアップ
 
-### 自動セットアップ (推奨)
+### Claude Code を使う場合 (推奨)
 
-リポジトリをcloneした後、スクリプト1発で開発用サーバーが構築されます。
+リポジトリをcloneしてClaude Codeを起動し、`/setup` を実行するだけです。
 
 ```bash
 git clone <repo-url>
 cd minecraft-project-swarm-vs-hunter
-bash setup-server.sh
+claude   # Claude Code を起動
 ```
 
-スクリプトが行うこと:
-1. Java / Maven の存在チェック
-2. Paper 1.21.1 (build 127) のダウンロード
-3. `minecraft-server/` にサーバー環境を構築
-4. `eula.txt` 自動承認
-5. 起動スクリプト (`start.bat` / `start.sh`) 生成
-6. 初回起動で設定ファイル生成 (既に存在する場合はスキップ)
-7. `server.properties` を開発用に調整 (`online-mode=false`, `spawn-protection=0`, `level-type=flat`)
-8. プラグインをビルドして `plugins/` に配置
+Claude Code 内で:
+```
+/setup
+```
+
+Paper 1.21.1 (build 127) のダウンロード、サーバー構築、設定調整、プラグインビルド&配置まで全自動で行います。
+
+### シェルスクリプトを使う場合
+
+```bash
+bash setup-server.sh
+```
 
 ### 手動セットアップ
 
