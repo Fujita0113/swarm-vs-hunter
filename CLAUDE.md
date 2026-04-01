@@ -35,7 +35,8 @@ JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 
 ## テスト方針
 
-- タスク実装後は対応するテストを書く（または既存テストを更新）
+- タスク実装前にテストを書く（TDD）。テストが通ることをゴールにして実装する
+- MockBukkitで再現困難な機能（NMS直接操作等）は実装後にテストを書く
 - `JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn test` で全テスト通過を確認してからコミットする
 - 実装完了後、Sonnetサブエージェントを起動してレビューさせる:
   1. `mvn test` 実行 → 全テスト通過確認
