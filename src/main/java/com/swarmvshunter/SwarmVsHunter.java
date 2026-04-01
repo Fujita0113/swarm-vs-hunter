@@ -258,6 +258,26 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // mob配置
         spawnMobs();
 
+        // カウントダウン (3, 2, 1, 開始!)
+        new BukkitRunnable() {
+            int count = 3;
+            @Override
+            public void run() {
+                if (count > 0) {
+                    String msg = ChatColor.YELLOW + ">>> " + count + " <<<";
+                    swarmPlayer.sendMessage(msg);
+                    hunterPlayer.sendMessage(msg);
+                    count--;
+                } else {
+                    cancel();
+                    // カウントダウン完了 → ゲーム実開始
+                    actuallyStartGame();
+                }
+            }
+        }.runTaskTimer(this, 0, 20); // 0tick後に開始、20tick(1秒)間隔
+    }
+
+    void actuallyStartGame() {
         // Hunter装備
         equipHunter(hunterPlayer);
 

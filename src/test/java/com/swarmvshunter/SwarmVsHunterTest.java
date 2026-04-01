@@ -32,18 +32,24 @@ class SwarmVsHunterTest {
         MockBukkit.unmock();
     }
 
-    @Test
-    void svhStart_withTwoPlayers_generatesFieldAndChangesState() {
-        PlayerMock player2 = server.addPlayer();
-        // 手動で選択完了→ゲーム開始をシミュレート
+    // ヘルパー: startGameを呼んでカウントダウン完了まで進める
+    private void startGameAndFinishCountdown(PlayerMock p2) {
         plugin.swarmPlayer = player;
-        plugin.hunterPlayer = player2;
+        plugin.hunterPlayer = p2;
         plugin.selectedMobTypes.addAll(List.of(
                 EntityType.ZOMBIE, EntityType.PIG, EntityType.SKELETON, EntityType.COW));
         plugin.startGame();
+        // カウントダウン3秒分 + α
+        server.getScheduler().performTicks(61);
+    }
+
+    @Test
+    void svhStart_withTwoPlayers_generatesFieldAndChangesState() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
 
         assertEquals(SwarmVsHunter.GameState.PLAYING, plugin.gameState,
-                "gameState should be PLAYING after startGame");
+                "gameState should be PLAYING after countdown");
         assertNotNull(plugin.fieldOrigin, "fieldOrigin should be set");
     }
 
@@ -70,11 +76,7 @@ class SwarmVsHunterTest {
     @Test
     void svhStart_outerWallsAreStoneBricks() {
         PlayerMock player2 = server.addPlayer();
-        plugin.swarmPlayer = player;
-        plugin.hunterPlayer = player2;
-        plugin.selectedMobTypes.addAll(List.of(
-                EntityType.ZOMBIE, EntityType.PIG, EntityType.SKELETON, EntityType.COW));
-        plugin.startGame();
+        startGameAndFinishCountdown(player2);
 
         int ox = plugin.fieldOrigin.getBlockX();
         int baseY = plugin.fieldOrigin.getBlockY();
@@ -101,11 +103,7 @@ class SwarmVsHunterTest {
     @Test
     void svhStart_hunterTeleportedToField() {
         PlayerMock player2 = server.addPlayer();
-        plugin.swarmPlayer = player;
-        plugin.hunterPlayer = player2;
-        plugin.selectedMobTypes.addAll(List.of(
-                EntityType.ZOMBIE, EntityType.PIG, EntityType.SKELETON, EntityType.COW));
-        plugin.startGame();
+        startGameAndFinishCountdown(player2);
 
         // Hunterはフィールド右側にTP
         double expectedX = plugin.fieldOrigin.getBlockX() + plugin.fieldSize * 3.0 / 4.0;
@@ -223,5 +221,56 @@ class SwarmVsHunterTest {
 
         // spawnMobsを呼んでもクラッシュしない
         assertDoesNotThrow(() -> plugin.spawnMobs());
+    }
+
+    // === マイルストーン2: カウントダウンテスト ===
+
+    @Test
+    void startGame_countdownBeforePlaying() {
+        PlayerMock player2 = server.addPlayer();
+        plugin.swarmPlayer = player;
+        plugin.hunterPlayer = player2;
+        plugin.gameState = SwarmVsHunter.GameState.SELECTING;
+        plugin.selectedMobTypes.addAll(List.of(
+                EntityType.ZOMBIE, EntityType.PIG, EntityType.SKELETON, EntityType.COW));
+        plugin.startGame();
+
+        // カウントダウン中はまだPLAYINGではない
+        assertEquals(SwarmVsHunter.GameState.SELECTING, plugin.gameState,
+                "カウントダウン中はSELECTINGのまま");
+
+        // 3秒分のtickを進める (20tick/秒 × 3秒 = 60tick + 開始の1tick)
+        server.getScheduler().performTicks(61);
+
+        // カウントダウン完了後にPLAYINGになる
+        assertEquals(SwarmVsHunter.GameState.PLAYING, plugin.gameState,
+                "カウントダウン後にPLAYINGになる");
+    }
+
+    @Test
+    void startGame_countdownSendsMessages() {
+        PlayerMock player2 = server.addPlayer();
+        plugin.swarmPlayer = player;
+        plugin.hunterPlayer = player2;
+        plugin.gameState = SwarmVsHunter.GameState.SELECTING;
+        plugin.selectedMobTypes.addAll(List.of(
+                EntityType.ZOMBIE, EntityType.PIG, EntityType.SKELETON, EntityType.COW));
+        plugin.startGame();
+
+        // 1秒目 (20tick) → "3"
+        server.getScheduler().performTicks(20);
+        // 2秒目 (40tick) → "2"
+        server.getScheduler().performTicks(20);
+        // 3秒目 (60tick) → "1" → 開始
+
+        // メッセージに数字が含まれるか確認
+        boolean hasCountdown = false;
+        String msg;
+        while ((msg = player.nextMessage()) != null) {
+            if (msg.contains("3") || msg.contains("2") || msg.contains("1")) {
+                hasCountdown = true;
+            }
+        }
+        assertTrue(hasCountdown, "カウントダウンメッセージが送信される");
     }
 }
