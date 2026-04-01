@@ -9,8 +9,8 @@ Minecraft 2人対戦ミニゲーム「Swarm vs Hunter」のSpigot/Paperプラグ
 
 ## 必要環境
 
-- Java 21
-- Maven
+- Java 21 (`/setup` が未インストールなら自動でインストールします)
+- Maven (`/setup` が未インストールなら自動でインストールします)
 
 ## セットアップ
 
