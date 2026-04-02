@@ -10,6 +10,7 @@ import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
@@ -372,11 +373,12 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         swarmPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
         hunterPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
 
-        // フィールド生成
-        fieldOrigin = swarmPlayer.getLocation().clone();
-        fieldOrigin.setX(fieldOrigin.getBlockX() - fieldSize / 2);
-        fieldOrigin.setY(fieldOrigin.getBlockY());
-        fieldOrigin.setZ(fieldOrigin.getBlockZ() - fieldSize / 2);
+        // フィールド生成（0,0,0を中心に固定）
+        World world = swarmPlayer.getWorld();
+        fieldOrigin = new Location(world, -fieldSize / 2, 0, -fieldSize / 2);
+        // 地表の高さを取得してY座標を設定
+        int centerY = world.getHighestBlockYAt(0, 0);
+        fieldOrigin.setY(centerY);
         generateField(fieldOrigin, fieldSize);
 
         // mob配置
@@ -464,6 +466,29 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 }
             }
         }
+    }
+
+    // === フィールド内の自然スポーン抑制 ===
+    @EventHandler
+    public void onCreatureSpawn(CreatureSpawnEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.CUSTOM
+                || event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.COMMAND) return;
+        // プラグインが配置したmobは許可済み（fieldMobsに登録済み）
+        if (fieldMobs.contains(event.getEntity().getUniqueId())) return;
+
+        // フィールド範囲内かチェック
+        if (fieldOrigin != null && isInsideField(event.getEntity().getLocation())) {
+            event.setCancelled(true);
+        }
+    }
+
+    boolean isInsideField(Location loc) {
+        int ox = fieldOrigin.getBlockX();
+        int oz = fieldOrigin.getBlockZ();
+        int x = loc.getBlockX();
+        int z = loc.getBlockZ();
+        return x >= ox && x < ox + fieldSize && z >= oz && z < oz + fieldSize;
     }
 
     // === 中立mobシステム: EntityTargetEventキャンセル ===
