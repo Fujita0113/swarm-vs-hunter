@@ -166,6 +166,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         if (args.length == 0) {
             player.sendMessage(ChatColor.YELLOW + "/svh start - ゲームを開始");
+            player.sendMessage(ChatColor.YELLOW + "/svh stop - ゲームを停止");
+            return true;
+        }
+
+        if (args[0].equalsIgnoreCase("stop")) {
+            if (gameState == GameState.WAITING) {
+                player.sendMessage(ChatColor.RED + "ゲームが開始されていません");
+                return true;
+            }
+            stopGame();
+            player.sendMessage(ChatColor.GREEN + "ゲームを停止しました");
             return true;
         }
 
@@ -493,8 +504,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // Hunter装備
         equipHunter(hunterPlayer);
 
-        // Swarmは装備なし、HP1設定
+        // Swarmは装備なし、最大HP1設定（満腹回復を防ぐ）
         swarmPlayer.getInventory().clear();
+        AttributeInstance maxHpAttr = swarmPlayer.getAttribute(Attribute.MAX_HEALTH);
+        if (maxHpAttr != null) maxHpAttr.setBaseValue(1.0);
         swarmPlayer.setHealth(1.0);
 
         // テレポート
@@ -552,7 +565,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // ネームタグ非表示
         hideSwarmNametag();
 
-        // HP1維持
+        // 最大HP1維持
+        AttributeInstance maxHp = swarmPlayer.getAttribute(Attribute.MAX_HEALTH);
+        if (maxHp != null) maxHp.setBaseValue(1.0);
         swarmPlayer.setHealth(1.0);
 
         // 周囲の同種mobを敵対化
@@ -597,6 +612,57 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         swarmPlayer.sendMessage(ChatColor.YELLOW + "Hunterに倒された！人間に戻された (死亡: " + swarmDeathCount + "/3)");
         hunterPlayer.sendMessage(ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/3)");
+    }
+
+    // === ゲーム停止・クリーンアップ ===
+    void stopGame() {
+        // フィールドmobを全除去
+        if (fieldOrigin != null) {
+            World world = fieldOrigin.getWorld();
+            for (UUID id : fieldMobs) {
+                Entity entity = world.getEntity(id);
+                if (entity != null) entity.remove();
+            }
+        }
+        fieldMobs.clear();
+        aggroMobs.clear();
+        provokedMobs.clear();
+
+        // プレイヤー状態復元
+        for (Player p : new Player[]{swarmPlayer, hunterPlayer}) {
+            if (p == null || !p.isOnline()) continue;
+            p.getInventory().clear();
+            p.getInventory().setArmorContents(null);
+            // 最大HP復元
+            AttributeInstance maxHp = p.getAttribute(Attribute.MAX_HEALTH);
+            if (maxHp != null) maxHp.setBaseValue(20.0);
+            p.setHealth(20.0);
+            p.setFoodLevel(20);
+            p.setSaturation(5.0f);
+            // ポーション効果除去
+            for (var effect : p.getActivePotionEffects()) {
+                p.removePotionEffect(effect.getType());
+            }
+            // ステータスリセット
+            try {
+                AttributeInstance atkAttr = p.getAttribute(Attribute.ATTACK_DAMAGE);
+                if (atkAttr != null) atkAttr.setBaseValue(1.0);
+                AttributeInstance spdAttr = p.getAttribute(Attribute.MOVEMENT_SPEED);
+                if (spdAttr != null) spdAttr.setBaseValue(0.1);
+            } catch (Exception e) {}
+        }
+
+        // ネームタグ復帰
+        if (swarmPlayer != null) showSwarmNametag();
+
+        // ステート初期化
+        swarmDisguiseType = null;
+        swarmDeathCount = 0;
+        selectedMobTypes.clear();
+        playerSelections.clear();
+        gameState = GameState.WAITING;
+
+        Bukkit.broadcastMessage(ChatColor.GOLD + "[SVH] ゲームが停止されました");
     }
 
     void aggroNearbyMobs(EntityType type) {
