@@ -14,6 +14,8 @@ import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -129,11 +131,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     }
 
     // === mob選択GUI ===
+    static final int SLOT_SELECT_1 = 46; // 6行目: 1体目スロット
+    static final int SLOT_SELECT_2 = 48; // 6行目: 2体目スロット
+    static final int SEPARATOR_ROW_START = 36; // 5行目開始
+    static final int SEPARATOR_ROW_END = 44;   // 5行目終了
+
     void openMobSelectionGUI(Player player) {
         int size = 54; // 6行チェスト
         Inventory gui = Bukkit.createInventory(null, size, MOB_SELECT_TITLE);
 
-        for (int i = 0; i < SELECTABLE_MOBS.size() && i < size; i++) {
+        // 1〜4行目: mob一覧
+        for (int i = 0; i < SELECTABLE_MOBS.size() && i < 36; i++) {
             EntityType type = SELECTABLE_MOBS.get(i);
             Material eggMat = getSpawnEggMaterial(type);
             if (eggMat != null) {
@@ -152,7 +160,126 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             }
         }
 
+        // 5行目: 区切り線（灰色ガラス板）
+        ItemStack separator = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta sepMeta = separator.getItemMeta();
+        if (sepMeta != null) {
+            sepMeta.setDisplayName(" ");
+            separator.setItemMeta(sepMeta);
+        }
+        for (int i = SEPARATOR_ROW_START; i <= SEPARATOR_ROW_END; i++) {
+            gui.setItem(i, separator.clone());
+        }
+
+        // 6行目: 選択スロットエリア
+        ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta fillerMeta = filler.getItemMeta();
+        if (fillerMeta != null) {
+            fillerMeta.setDisplayName(" ");
+            filler.setItemMeta(fillerMeta);
+        }
+        for (int i = 45; i <= 53; i++) {
+            gui.setItem(i, filler.clone());
+        }
+
+        // 1体目・2体目の空スロット（黒ガラス板）
+        gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
+        gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+
         player.openInventory(gui);
+    }
+
+    ItemStack createEmptySlot(String name) {
+        ItemStack slot = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta meta = slot.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            slot.setItemMeta(meta);
+        }
+        return slot;
+    }
+
+    void refreshGUI(Player player) {
+        Inventory gui = player.getOpenInventory().getTopInventory();
+        if (gui == null || gui.getSize() != 54) return;
+
+        List<EntityType> selections = playerSelections.getOrDefault(player, List.of());
+        boolean isReady = selections.size() >= 2;
+
+        // 1〜4行目: mob一覧の選択状態を更新
+        for (int i = 0; i < SELECTABLE_MOBS.size() && i < 36; i++) {
+            EntityType type = SELECTABLE_MOBS.get(i);
+            Material eggMat = getSpawnEggMaterial(type);
+            if (eggMat == null) continue;
+
+            ItemStack egg = new ItemStack(eggMat);
+            ItemMeta meta = egg.getItemMeta();
+            if (meta == null) continue;
+
+            if (selections.contains(type)) {
+                // 選択済み: エンチャントグロー + 緑チェックマーク
+                meta.setDisplayName(ChatColor.GREEN + "\u2714 " + type.name());
+                meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+                if (NON_COMBAT_MOBS.contains(type)) {
+                    meta.setLore(List.of(ChatColor.GREEN + "非戦闘mob", ChatColor.YELLOW + "クリックで選択解除"));
+                } else {
+                    meta.setLore(List.of(ChatColor.RED + "戦闘mob", ChatColor.YELLOW + "クリックで選択解除"));
+                }
+            } else {
+                meta.setDisplayName(ChatColor.WHITE + type.name());
+                if (NON_COMBAT_MOBS.contains(type)) {
+                    meta.setLore(List.of(ChatColor.GREEN + "非戦闘mob"));
+                } else {
+                    meta.setLore(List.of(ChatColor.RED + "戦闘mob"));
+                }
+            }
+            egg.setItemMeta(meta);
+            gui.setItem(i, egg);
+        }
+
+        // 5行目: 区切り線の色を更新
+        Material sepMat = isReady ? Material.LIME_STAINED_GLASS_PANE : Material.GRAY_STAINED_GLASS_PANE;
+        for (int i = SEPARATOR_ROW_START; i <= SEPARATOR_ROW_END; i++) {
+            ItemStack sep = new ItemStack(sepMat);
+            ItemMeta sepMeta = sep.getItemMeta();
+            if (sepMeta != null) {
+                if (isReady && i == 40) {
+                    // 中央に完了メッセージ
+                    sepMeta.setDisplayName(ChatColor.GREEN + "\u2714 選択完了！相手を待っています...");
+                } else {
+                    sepMeta.setDisplayName(" ");
+                }
+                sep.setItemMeta(sepMeta);
+            }
+            gui.setItem(i, sep);
+        }
+
+        // 6行目: 選択スロットを更新
+        if (selections.size() >= 1) {
+            gui.setItem(SLOT_SELECT_1, createSelectedSlot(selections.get(0), 1));
+        } else {
+            gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
+        }
+        if (selections.size() >= 2) {
+            gui.setItem(SLOT_SELECT_2, createSelectedSlot(selections.get(1), 2));
+        } else {
+            gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+        }
+    }
+
+    ItemStack createSelectedSlot(EntityType type, int number) {
+        Material eggMat = getSpawnEggMaterial(type);
+        if (eggMat == null) eggMat = Material.BARRIER;
+        ItemStack item = new ItemStack(eggMat);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GREEN + "" + number + "体目: " + type.name());
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     Material getSpawnEggMaterial(EntityType type) {
@@ -171,6 +298,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (!event.getView().getTitle().equals(MOB_SELECT_TITLE)) return;
 
         event.setCancelled(true);
+
+        int slot = event.getRawSlot();
+        // 5行目（区切り線）・6行目（選択スロット）のクリックは無視
+        if (slot >= SEPARATOR_ROW_START) return;
+
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || !clicked.getType().name().endsWith("_SPAWN_EGG")) return;
 
@@ -191,6 +323,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             selections.remove(selectedType);
             player.sendMessage(ChatColor.YELLOW + selectedType.name() + " の選択を解除しました");
             notifyOtherPlayer(player, selectedType, false);
+            refreshGUI(player);
             return;
         }
 
@@ -213,6 +346,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         selections.add(selectedType);
         player.sendMessage(ChatColor.GREEN + selectedType.name() + " を選択しました (" + selections.size() + "/2)");
         notifyOtherPlayer(player, selectedType, true);
+        refreshGUI(player);
 
         // 両者2体ずつ選択完了チェック
         if (bothPlayersReady()) {

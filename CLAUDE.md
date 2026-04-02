@@ -36,7 +36,8 @@ Swarm(HP1、mobに変身して群れで襲う)とHunter(鉄装備、3分生存or
 JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 
 # 生成されるjar: target/swarm-vs-hunter-3.0.jar
-# jarをサーバーのplugins/にコピーしてサーバー再起動で反映
+# pom.xmlのantrun pluginにより minecraft-server/plugins/ へ自動コピーされる
+# サーバー再起動で反映
 ```
 
 ## テスト方針
