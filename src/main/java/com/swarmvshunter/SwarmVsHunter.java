@@ -79,8 +79,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     EntityType swarmDisguiseType = null;
     int swarmDeathCount = 0;
     int aggroRadius = 20;
-    Set<UUID> aggroMobs = new HashSet<>();
+    Set<UUID> followingMobs = new HashSet<>(); // Swarmに追従する同種mob
     Set<UUID> provokedMobs = new HashSet<>();
+    BukkitRunnable followTask = null; // 追従タスク
 
     // mobステータステーブル（バニラ攻撃力）
     static final Map<EntityType, Double> MOB_ATTACK_DAMAGE = Map.ofEntries(
@@ -530,6 +531,36 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         gameState = GameState.PLAYING;
         swarmPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
         hunterPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
+
+        // 追従タスク: 10tick(0.5秒)ごとに追従mobをSwarmに向かわせる
+        followTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (gameState != GameState.PLAYING || swarmPlayer == null) {
+                    cancel();
+                    return;
+                }
+                if (followingMobs.isEmpty()) return;
+                try {
+                    World world = swarmPlayer.getWorld();
+                    Location swarmLoc = swarmPlayer.getLocation();
+                    for (UUID id : new HashSet<>(followingMobs)) {
+                        Entity entity = world.getEntity(id);
+                        if (entity instanceof Mob mob && mob.isValid()) {
+                            // ターゲットがなければSwarmの方に歩かせる
+                            if (mob.getTarget() == null) {
+                                mob.getPathfinder().moveTo(swarmLoc);
+                            }
+                        } else {
+                            followingMobs.remove(id);
+                        }
+                    }
+                } catch (Exception e) {
+                    // テスト環境等で無視
+                }
+            }
+        };
+        followTask.runTaskTimer(this, 10, 10);
     }
 
     // === Hunter初期装備 ===
@@ -552,9 +583,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     // === Swarm変身システム ===
 
     void transformSwarm(EntityType type) {
-        // 既に変身中なら現在の敵対mobを解除
+        // 既に変身中なら現在の追従mobを解除
         if (swarmDisguiseType != null) {
-            deaggroAllMobs();
+            releaseFollowingMobs();
         }
 
         swarmDisguiseType = type;
@@ -581,16 +612,16 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (maxHp != null) maxHp.setBaseValue(1.0);
         swarmPlayer.setHealth(1.0);
 
-        // 周囲の同種mobを敵対化
-        aggroNearbyMobs(type);
+        // 周囲の同種mobを追従させる（狼のように）
+        recruitFollowingMobs(type);
 
-        swarmPlayer.sendMessage(ChatColor.GREEN + type.name() + " に変身した！周囲の同種mobがHunterを襲う！");
+        swarmPlayer.sendMessage(ChatColor.GREEN + type.name() + " に変身した！周囲の同種mobがついてくる！");
         hunterPlayer.sendMessage(ChatColor.RED + "Swarmが " + type.name() + " に変身した！警戒せよ！");
     }
 
     void revertSwarm() {
-        // 敵対mob解除
-        deaggroAllMobs();
+        // 追従mob解除
+        releaseFollowingMobs();
 
         swarmDisguiseType = null;
         swarmDeathCount++;
@@ -627,6 +658,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
     // === ゲーム停止・クリーンアップ ===
     void stopGame() {
+        // 追従タスク停止
+        if (followTask != null) {
+            followTask.cancel();
+            followTask = null;
+        }
         // フィールドmobを全除去
         if (fieldOrigin != null) {
             World world = fieldOrigin.getWorld();
@@ -636,7 +672,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             }
         }
         fieldMobs.clear();
-        aggroMobs.clear();
+        followingMobs.clear();
         provokedMobs.clear();
 
         // プレイヤー状態復元
@@ -676,13 +712,13 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         Bukkit.broadcastMessage(ChatColor.GOLD + "[SVH] ゲームが停止されました");
     }
 
-    void aggroNearbyMobs(EntityType type) {
-        aggroMobs.clear();
+    // 周囲の同種mobをSwarmの追従mobとして登録
+    void recruitFollowingMobs(EntityType type) {
+        followingMobs.clear();
         try {
             for (var entity : swarmPlayer.getWorld().getNearbyEntities(swarmPlayer.getLocation(), aggroRadius, aggroRadius, aggroRadius)) {
                 if (entity.getType() == type && fieldMobs.contains(entity.getUniqueId()) && entity instanceof Mob mob) {
-                    mob.setTarget(hunterPlayer);
-                    aggroMobs.add(entity.getUniqueId());
+                    followingMobs.add(entity.getUniqueId());
                 }
             }
         } catch (Exception e) {
@@ -690,10 +726,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
-    void deaggroAllMobs() {
+    // 追従mobを全て解除（中立に戻す）
+    void releaseFollowingMobs() {
         try {
             World world = swarmPlayer.getWorld();
-            for (UUID id : aggroMobs) {
+            for (UUID id : followingMobs) {
                 Entity entity = world.getEntity(id);
                 if (entity instanceof Mob mob) {
                     mob.setTarget(null);
@@ -702,7 +739,24 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         } catch (Exception e) {
             // テスト環境等で無視
         }
-        aggroMobs.clear();
+        followingMobs.clear();
+    }
+
+    // Swarmが何かを攻撃した時、追従mobも同じターゲットを攻撃する
+    void commandFollowingMobsToAttack(Entity target) {
+        try {
+            World world = swarmPlayer.getWorld();
+            for (UUID id : followingMobs) {
+                Entity entity = world.getEntity(id);
+                if (entity instanceof Mob mob) {
+                    if (target instanceof LivingEntity livingTarget) {
+                        mob.setTarget(livingTarget);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // テスト環境等で無視
+        }
     }
 
     void hideSwarmNametag() {
@@ -743,9 +797,22 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             damager = (Entity) shooter;
         }
 
-        // Case 1: Swarmがフィールドmobを殴る → 挑発（mob がSwarmを狙う）
+        // Case 1a: Swarmが変身中にHunterを攻撃 → 追従mobもHunterを攻撃
+        if (damager.equals(swarmPlayer) && event.getEntity().equals(hunterPlayer)) {
+            if (swarmDisguiseType != null) {
+                commandFollowingMobsToAttack(hunterPlayer);
+            }
+            return;
+        }
+
+        // Case 1b: Swarmがフィールドmobを殴る
         if (damager.equals(swarmPlayer) && fieldMobs.contains(event.getEntity().getUniqueId())) {
+            if (swarmDisguiseType != null) {
+                // 変身中 → 追従mobもそのmobを攻撃
+                commandFollowingMobsToAttack(event.getEntity());
+            }
             if (event.getEntity() instanceof Mob mob) {
+                // 未変身でも変身中でも：殴ったmobはSwarmに反撃する（挑発）
                 provokedMobs.add(mob.getUniqueId());
                 mob.setTarget(swarmPlayer);
             }
@@ -776,14 +843,13 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
-    // 環境ダメージ（落下、火等）からSwarmを保護
+    // Swarmのダメージ処理: 環境ダメージはそのまま通す（死亡可能）、mob攻撃は変身トリガー（onEntityDamageByEntityで処理済み）
     @EventHandler(priority = EventPriority.LOW)
     public void onEntityDamage(EntityDamageEvent event) {
         if (gameState != GameState.PLAYING) return;
         if (!event.getEntity().equals(swarmPlayer)) return;
-        if (!(event instanceof EntityDamageByEntityEvent)) {
-            event.setCancelled(true);
-        }
+        // EntityDamageByEntityEventは別ハンドラで処理するのでここではスルー
+        // 環境ダメージ（落下、火、溺れ等）はそのまま通す → Swarmは環境ダメージで死ぬ
     }
 
     // === mob配置 ===
@@ -838,7 +904,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         return x >= ox && x < ox + fieldSize && z >= oz && z < oz + fieldSize;
     }
 
-    // === 中立mobシステム: EntityTargetEventキャンセル（敵対化mob・挑発mob例外あり） ===
+    // === 中立mobシステム: EntityTargetEventキャンセル（追従mob・挑発mob例外あり） ===
     @EventHandler
     public void onEntityTarget(EntityTargetEvent event) {
         if (gameState != GameState.PLAYING) return;
@@ -846,8 +912,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         UUID mobId = event.getEntity().getUniqueId();
         if (!fieldMobs.contains(mobId)) return;
 
-        // 敵対化mobがHunterを狙うのは許可
-        if (aggroMobs.contains(mobId) && event.getTarget().equals(hunterPlayer)) return;
+        // 追従mobはターゲット設定を許可（Swarmが指令した攻撃対象を狙える）
+        if (followingMobs.contains(mobId)) return;
         // 挑発されたmobがSwarmを狙うのは許可
         if (provokedMobs.contains(mobId) && event.getTarget().equals(swarmPlayer)) return;
 
