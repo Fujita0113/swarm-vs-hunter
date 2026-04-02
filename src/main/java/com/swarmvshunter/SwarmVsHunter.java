@@ -373,12 +373,22 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         swarmPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
         hunterPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
 
-        // フィールド生成（0,0,0を中心に固定）
+        // フィールド生成（0,0,0を中心に固定、範囲内の最高地点を基準）
         World world = swarmPlayer.getWorld();
-        fieldOrigin = new Location(world, -fieldSize / 2, 0, -fieldSize / 2);
-        // 地表の高さを取得してY座標を設定
-        int centerY = world.getHighestBlockYAt(0, 0);
-        fieldOrigin.setY(centerY);
+        int ox = -fieldSize / 2;
+        int oz = -fieldSize / 2;
+        int maxY = 0;
+        // 四隅+中央+辺の中点の9箇所で最高地点を調べる
+        int[][] checkPoints = {
+            {ox, oz}, {ox + fieldSize - 1, oz}, {ox, oz + fieldSize - 1}, {ox + fieldSize - 1, oz + fieldSize - 1},
+            {0, 0}, {ox, oz + fieldSize / 2}, {ox + fieldSize - 1, oz + fieldSize / 2},
+            {ox + fieldSize / 2, oz}, {ox + fieldSize / 2, oz + fieldSize - 1}
+        };
+        for (int[] p : checkPoints) {
+            int y = world.getHighestBlockYAt(p[0], p[1]);
+            if (y > maxY) maxY = y;
+        }
+        fieldOrigin = new Location(world, ox, maxY, oz);
         generateField(fieldOrigin, fieldSize);
 
         // mob配置
