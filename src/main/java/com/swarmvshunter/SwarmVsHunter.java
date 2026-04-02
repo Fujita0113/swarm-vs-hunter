@@ -10,11 +10,14 @@ import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.util.Vector;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.enchantments.Enchantment;
@@ -86,6 +89,28 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     Set<UUID> followingMobs = new HashSet<>(); // Swarmに追従する同種mob
     Set<UUID> provokedMobs = new HashSet<>();
     BukkitRunnable followTask = null; // 追従タスク
+
+    // 固有能力クールダウン（ミリ秒）
+    long lastAbilityUse = 0;
+    static final Map<EntityType, Integer> ABILITY_COOLDOWN_SECONDS = Map.ofEntries(
+            Map.entry(EntityType.CREEPER, 10),
+            Map.entry(EntityType.ZOMBIE, 3),
+            Map.entry(EntityType.SKELETON, 2),
+            Map.entry(EntityType.SPIDER, 5),
+            Map.entry(EntityType.ENDERMAN, 4),
+            Map.entry(EntityType.WITCH, 5),
+            Map.entry(EntityType.BLAZE, 3),
+            Map.entry(EntityType.SLIME, 4),
+            Map.entry(EntityType.CAVE_SPIDER, 5),
+            Map.entry(EntityType.ZOMBIFIED_PIGLIN, 8),
+            Map.entry(EntityType.PIGLIN, 2),
+            Map.entry(EntityType.HOGLIN, 5),
+            Map.entry(EntityType.VINDICATOR, 4),
+            Map.entry(EntityType.PILLAGER, 2),
+            Map.entry(EntityType.RAVAGER, 6),
+            Map.entry(EntityType.VEX, 5),
+            Map.entry(EntityType.WARDEN, 8)
+    );
 
     // mobステータステーブル（バニラ攻撃力）
     static final Map<EntityType, Double> MOB_ATTACK_DAMAGE = Map.ofEntries(
@@ -629,6 +654,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         swarmDisguiseType = null;
         swarmDeathCount++;
+        lastAbilityUse = 0;
 
         // Disguise解除
         removeDisguise(swarmPlayer);
@@ -711,6 +737,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // ステート初期化
         swarmDisguiseType = null;
         swarmDeathCount = 0;
+        lastAbilityUse = 0;
         selectedMobTypes.clear();
         playerSelections.clear();
         gameState = GameState.WAITING;
@@ -943,6 +970,320 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         // それ以外のターゲット設定はキャンセル（中立化）
         event.setCancelled(true);
+    }
+
+    // === Swarm固有能力（右クリック発動） ===
+
+    @EventHandler
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!event.getPlayer().equals(swarmPlayer)) return;
+        if (swarmDisguiseType == null) return;
+
+        // 右クリックのみ
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+
+        // クールダウンチェック
+        int cooldown = ABILITY_COOLDOWN_SECONDS.getOrDefault(swarmDisguiseType, 5);
+        long now = System.currentTimeMillis();
+        long elapsed = now - lastAbilityUse;
+        if (elapsed < cooldown * 1000L) {
+            int remaining = (int) Math.ceil((cooldown * 1000L - elapsed) / 1000.0);
+            swarmPlayer.sendMessage(ChatColor.GRAY + "能力クールダウン中... あと" + remaining + "秒");
+            return;
+        }
+        lastAbilityUse = now;
+
+        // mob別能力発動
+        useAbility(swarmDisguiseType);
+    }
+
+    void useAbility(EntityType type) {
+        switch (type) {
+            case CREEPER -> abilityCreeper();
+            case ZOMBIE -> abilityZombie();
+            case SKELETON -> abilitySkeleton();
+            case SPIDER -> abilitySpider();
+            case CAVE_SPIDER -> abilityCaveSpider();
+            case ENDERMAN -> abilityEnderman();
+            case WITCH -> abilityWitch();
+            case BLAZE -> abilityBlaze();
+            case SLIME -> abilitySlime();
+            case ZOMBIFIED_PIGLIN -> abilityZombifiedPiglin();
+            case PIGLIN -> abilityPiglin();
+            case HOGLIN -> abilityHoglin();
+            case VINDICATOR -> abilityVindicator();
+            case PILLAGER -> abilityPillager();
+            case RAVAGER -> abilityRavager();
+            case VEX -> abilityVex();
+            case WARDEN -> abilityWarden();
+            default -> {
+                swarmPlayer.sendMessage(ChatColor.GRAY + "このmobには固有能力がありません");
+                lastAbilityUse = 0; // クールダウンリセット
+            }
+        }
+    }
+
+    // クリーパー: 爆発（自分はノーダメ、周囲にダメージ）
+    void abilityCreeper() {
+        swarmPlayer.sendMessage(ChatColor.GREEN + "§lシュー...");
+        Location loc = swarmPlayer.getLocation();
+        World world = loc.getWorld();
+        // 1.5秒後に爆発
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (gameState != GameState.PLAYING || swarmDisguiseType == null) return;
+                world.createExplosion(loc.getX(), loc.getY(), loc.getZ(), 3.0f, false, false);
+                // 爆発範囲内のHunterにダメージ
+                if (hunterPlayer.getLocation().distance(loc) <= 5.0) {
+                    hunterPlayer.damage(8.0, swarmPlayer);
+                }
+                swarmPlayer.sendMessage(ChatColor.RED + "§l💥 ドカーン！");
+            }
+        }.runTaskLater(this, 30); // 1.5秒後
+    }
+
+    // ゾンビ: 突進攻撃（前方にダッシュ + 近くの敵にダメージ）
+    void abilityZombie() {
+        Vector dir = swarmPlayer.getLocation().getDirection().normalize().multiply(1.5);
+        dir.setY(0.3);
+        swarmPlayer.setVelocity(dir);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "突進攻撃！");
+        // 着地後に周囲ダメージ
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (hunterPlayer.getLocation().distance(swarmPlayer.getLocation()) <= 3.0) {
+                    hunterPlayer.damage(getMobAttackDamage(EntityType.ZOMBIE) + 2.0, swarmPlayer);
+                }
+            }
+        }.runTaskLater(this, 10);
+    }
+
+    // スケルトン: 矢を射る
+    void abilitySkeleton() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        swarmPlayer.getWorld().spawnArrow(eye.add(dir), dir, 2.0f, 0.0f).setShooter(swarmPlayer);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "矢を放った！");
+    }
+
+    // スパイダー: 跳躍攻撃 + 着地点周囲に移動速度低下
+    void abilitySpider() {
+        Vector dir = swarmPlayer.getLocation().getDirection().normalize().multiply(1.2);
+        dir.setY(0.8);
+        swarmPlayer.setVelocity(dir);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "跳躍攻撃！");
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                Location land = swarmPlayer.getLocation();
+                for (Entity e : land.getWorld().getNearbyEntities(land, 4, 4, 4)) {
+                    if (e.equals(hunterPlayer)) {
+                        hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1)); // 3秒間鈍足
+                    }
+                }
+            }
+        }.runTaskLater(this, 15);
+    }
+
+    // 洞窟グモ: 毒霧（周囲に毒効果）
+    void abilityCaveSpider() {
+        Location loc = swarmPlayer.getLocation();
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 5, 3, 5)) {
+            if (e.equals(hunterPlayer)) {
+                hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0)); // 5秒間毒
+            }
+        }
+        swarmPlayer.getWorld().spawnParticle(Particle.ITEM, loc, 30, 2, 1, 2, 0.1,
+                new ItemStack(Material.FERMENTED_SPIDER_EYE));
+        swarmPlayer.sendMessage(ChatColor.GREEN + "毒霧を放った！");
+    }
+
+    // エンダーマン: 視線方向にテレポート（最大16ブロック）
+    void abilityEnderman() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        Location target = eye.clone();
+        // レイキャストで最大16ブロック先の安全な位置を探す
+        for (int i = 1; i <= 16; i++) {
+            Location check = eye.clone().add(dir.clone().multiply(i));
+            if (check.getBlock().getType().isSolid()) break;
+            if (!check.clone().add(0, -1, 0).getBlock().getType().isSolid() && i > 1) continue;
+            target = check;
+        }
+        target.setYaw(swarmPlayer.getLocation().getYaw());
+        target.setPitch(swarmPlayer.getLocation().getPitch());
+        swarmPlayer.getWorld().spawnParticle(Particle.PORTAL, swarmPlayer.getLocation(), 40, 0.5, 1, 0.5);
+        swarmPlayer.teleport(target);
+        swarmPlayer.getWorld().spawnParticle(Particle.PORTAL, target, 40, 0.5, 1, 0.5);
+        swarmPlayer.getWorld().playSound(target, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "テレポート！");
+    }
+
+    // ウィッチ: 毒のスプラッシュポーション投擲
+    void abilityWitch() {
+        Location eye = swarmPlayer.getEyeLocation();
+        var potion = (org.bukkit.entity.ThrownPotion) swarmPlayer.getWorld().spawnEntity(eye, EntityType.POTION);
+        ItemStack potionItem = new ItemStack(Material.SPLASH_POTION);
+        org.bukkit.inventory.meta.PotionMeta potionMeta = (org.bukkit.inventory.meta.PotionMeta) potionItem.getItemMeta();
+        potionMeta.addCustomEffect(new PotionEffect(PotionEffectType.INSTANT_DAMAGE, 1, 0), true);
+        potionItem.setItemMeta(potionMeta);
+        potion.setItem(potionItem);
+        potion.setVelocity(eye.getDirection().normalize().multiply(1.2));
+        potion.setShooter(swarmPlayer);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "ポーションを投げた！");
+    }
+
+    // ブレイズ: 火の玉3連射
+    void abilityBlaze() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        for (int i = 0; i < 3; i++) {
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (gameState != GameState.PLAYING) return;
+                    Location fireEye = swarmPlayer.getEyeLocation();
+                    Vector fireDir = fireEye.getDirection().normalize();
+                    var fireball = (SmallFireball) swarmPlayer.getWorld().spawnEntity(
+                            fireEye.add(fireDir), EntityType.SMALL_FIREBALL);
+                    fireball.setDirection(fireDir);
+                    fireball.setShooter(swarmPlayer);
+                    fireball.setIsIncendiary(false);
+                }
+            }.runTaskLater(this, i * 5L); // 0.25秒間隔
+        }
+        swarmPlayer.sendMessage(ChatColor.GREEN + "ファイアチャージ！");
+    }
+
+    // スライム: 大ジャンプ + 着地時AoEダメージ
+    void abilitySlime() {
+        swarmPlayer.setVelocity(new Vector(0, 1.5, 0).add(
+                swarmPlayer.getLocation().getDirection().normalize().multiply(0.5)));
+        swarmPlayer.sendMessage(ChatColor.GREEN + "スライムジャンプ！");
+        new BukkitRunnable() {
+            int ticks = 0;
+            @Override
+            public void run() {
+                ticks++;
+                if (ticks > 40 || swarmPlayer.isOnGround()) {
+                    cancel();
+                    Location land = swarmPlayer.getLocation();
+                    land.getWorld().playSound(land, Sound.ENTITY_SLIME_SQUISH, 1.5f, 0.8f);
+                    for (Entity e : land.getWorld().getNearbyEntities(land, 4, 2, 4)) {
+                        if (e.equals(hunterPlayer)) {
+                            hunterPlayer.damage(4.0, swarmPlayer);
+                            Vector kb = hunterPlayer.getLocation().toVector()
+                                    .subtract(land.toVector()).normalize().multiply(0.8).setY(0.4);
+                            hunterPlayer.setVelocity(kb);
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(this, 5, 1);
+    }
+
+    // ゾンビピグリン: バーサクモード（5秒間スピード+攻撃力UP）
+    void abilityZombifiedPiglin() {
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 100, 1)); // 5秒
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, 100, 1)); // 5秒
+        swarmPlayer.getWorld().playSound(swarmPlayer.getLocation(), Sound.ENTITY_ZOMBIFIED_PIGLIN_ANGRY, 1.5f, 0.8f);
+        swarmPlayer.sendMessage(ChatColor.RED + "§lバーサクモード発動！ 5秒間強化！");
+    }
+
+    // ピグリン: クロスボウ射撃（矢）
+    void abilityPiglin() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        var arrow = swarmPlayer.getWorld().spawnArrow(eye.add(dir), dir, 2.5f, 0.0f);
+        arrow.setShooter(swarmPlayer);
+        arrow.setDamage(5.0);
+        swarmPlayer.getWorld().playSound(eye, Sound.ITEM_CROSSBOW_SHOOT, 1.0f, 1.0f);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "クロスボウ射撃！");
+    }
+
+    // ホグリン: 突進ノックバック
+    void abilityHoglin() {
+        Vector dir = swarmPlayer.getLocation().getDirection().normalize().multiply(2.0);
+        dir.setY(0.2);
+        swarmPlayer.setVelocity(dir);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "突進！");
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (hunterPlayer.getLocation().distance(swarmPlayer.getLocation()) <= 3.5) {
+                    hunterPlayer.damage(getMobAttackDamage(EntityType.HOGLIN), swarmPlayer);
+                    Vector kb = hunterPlayer.getLocation().toVector()
+                            .subtract(swarmPlayer.getLocation().toVector()).normalize().multiply(1.5).setY(0.5);
+                    hunterPlayer.setVelocity(kb);
+                }
+            }
+        }.runTaskLater(this, 8);
+    }
+
+    // ヴィンディケーター: 範囲斧攻撃
+    void abilityVindicator() {
+        Location loc = swarmPlayer.getLocation();
+        swarmPlayer.getWorld().playSound(loc, Sound.ENTITY_VINDICATOR_CELEBRATE, 1.0f, 0.8f);
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 3, 2, 3)) {
+            if (e.equals(hunterPlayer)) {
+                hunterPlayer.damage(getMobAttackDamage(EntityType.VINDICATOR), swarmPlayer);
+            }
+        }
+        swarmPlayer.sendMessage(ChatColor.GREEN + "範囲攻撃！");
+    }
+
+    // ピリジャー: クロスボウ射撃
+    void abilityPillager() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        var arrow = swarmPlayer.getWorld().spawnArrow(eye.add(dir), dir, 2.5f, 0.0f);
+        arrow.setShooter(swarmPlayer);
+        arrow.setDamage(4.0);
+        swarmPlayer.getWorld().playSound(eye, Sound.ITEM_CROSSBOW_SHOOT, 1.0f, 1.0f);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "クロスボウ射撃！");
+    }
+
+    // ラヴェジャー: 咆哮（範囲ノックバック）
+    void abilityRavager() {
+        Location loc = swarmPlayer.getLocation();
+        swarmPlayer.getWorld().playSound(loc, Sound.ENTITY_RAVAGER_ROAR, 1.5f, 1.0f);
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 6, 3, 6)) {
+            if (e.equals(hunterPlayer)) {
+                Vector kb = hunterPlayer.getLocation().toVector()
+                        .subtract(loc.toVector()).normalize().multiply(2.0).setY(0.6);
+                hunterPlayer.setVelocity(kb);
+                hunterPlayer.damage(6.0, swarmPlayer);
+            }
+        }
+        swarmPlayer.sendMessage(ChatColor.GREEN + "§l咆哮！");
+    }
+
+    // ヴェックス: 短時間飛行（浮遊3秒 + 移動速度UP）
+    void abilityVex() {
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, 40, 0)); // 2秒浮遊
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 60, 2)); // 3秒高速
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SLOW_FALLING, 80, 0)); // 4秒ゆっくり降下
+        swarmPlayer.sendMessage(ChatColor.GREEN + "飛行開始！");
+    }
+
+    // ウォーデン: ソニックブーム（前方直線に高ダメージ）
+    void abilityWarden() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        swarmPlayer.getWorld().playSound(eye, Sound.ENTITY_WARDEN_SONIC_BOOM, 2.0f, 1.0f);
+        swarmPlayer.sendMessage(ChatColor.GREEN + "§lソニックブーム！");
+        // 前方15ブロックのレイキャストで当たり判定
+        for (int i = 1; i <= 15; i++) {
+            Location check = eye.clone().add(dir.clone().multiply(i));
+            check.getWorld().spawnParticle(Particle.SONIC_BOOM, check, 1, 0, 0, 0, 0);
+            if (hunterPlayer.getLocation().distance(check) <= 2.0) {
+                hunterPlayer.damage(10.0, swarmPlayer);
+                break;
+            }
+        }
     }
 
     // === フィールド生成 ===
