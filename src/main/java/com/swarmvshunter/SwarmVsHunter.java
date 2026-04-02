@@ -687,10 +687,14 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             return;
         }
 
-        // Case 3: HunterがSwarmを攻撃 → 人間に戻す
+        // Case 3: HunterがSwarmを攻撃
         if (event.getEntity().equals(swarmPlayer) && damager.equals(hunterPlayer)) {
             event.setCancelled(true);
-            revertSwarm();
+            if (swarmDisguiseType != null) {
+                // 変身中 → 人間に戻す（キルカウント）
+                revertSwarm();
+            }
+            // 人間状態 → ダメージキャンセルのみ（キルカウントなし）
             return;
         }
     }

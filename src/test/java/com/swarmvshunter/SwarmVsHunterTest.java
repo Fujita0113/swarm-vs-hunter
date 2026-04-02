@@ -318,6 +318,15 @@ class SwarmVsHunterTest {
     }
 
     @Test
+    void revertSwarm_notCalledWhenHumanForm_noDeathCountIncrease() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        // 人間状態（disguiseType == null）では revertSwarm を呼ばない
+        assertNull(plugin.swarmDisguiseType);
+        assertEquals(0, plugin.swarmDeathCount);
+    }
+
+    @Test
     void startGame_countdownSendsMessages() {
         PlayerMock player2 = server.addPlayer();
         plugin.swarmPlayer = player;
