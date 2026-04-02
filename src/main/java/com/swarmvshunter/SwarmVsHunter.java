@@ -516,6 +516,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         swarmPlayer.teleport(swarmSpawn);
         hunterPlayer.teleport(hunterSpawn);
 
+        // フィールド内の不要mob（ゲーム開始前に自然スポーンしたもの）を除去
+        if (fieldOrigin != null) {
+            for (Entity entity : fieldOrigin.getWorld().getLivingEntities()) {
+                if (entity instanceof Player) continue;
+                if (fieldMobs.contains(entity.getUniqueId())) continue;
+                if (isInsideField(entity.getLocation())) {
+                    entity.remove();
+                }
+            }
+        }
+
         gameState = GameState.PLAYING;
         swarmPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
         hunterPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
