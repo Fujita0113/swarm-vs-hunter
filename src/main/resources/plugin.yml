@@ -2,6 +2,7 @@ name: SwarmVsHunter
 version: '3.0'
 main: com.swarmvshunter.SwarmVsHunter
 api-version: '1.21'
+depend: [LibsDisguises]
 description: Swarm vs Hunter 2人対戦ミニゲーム
 commands:
   svh:

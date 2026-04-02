@@ -27,6 +27,10 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
+import me.libraryaddict.disguise.DisguiseAPI;
+import me.libraryaddict.disguise.disguisetypes.DisguiseType;
+import me.libraryaddict.disguise.disguisetypes.MobDisguise;
+
 import java.util.*;
 
 public class SwarmVsHunter extends JavaPlugin implements Listener {
@@ -590,8 +594,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         swarmDisguiseType = type;
 
-        // 透明化（暫定Disguise: LibsDisguises導入まで透明+ネームタグ非表示で代用）
-        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, true, false));
+        // LibsDisguisesでmobの見た目に変身
+        applyDisguise(swarmPlayer, type);
         swarmPlayer.getInventory().clear();
 
         // 攻撃力・移動速度をmobのバニラ値に設定
@@ -626,8 +630,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         swarmDisguiseType = null;
         swarmDeathCount++;
 
-        // 透明化解除
-        swarmPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
+        // Disguise解除
+        removeDisguise(swarmPlayer);
 
         // ステータスリセット
         try {
@@ -678,6 +682,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // プレイヤー状態復元
         for (Player p : new Player[]{swarmPlayer, hunterPlayer}) {
             if (p == null || !p.isOnline()) continue;
+            // Disguise解除
+            removeDisguise(p);
             p.getInventory().clear();
             p.getInventory().setArmorContents(null);
             // 最大HP復元
@@ -756,6 +762,24 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             }
         } catch (Exception e) {
             // テスト環境等で無視
+        }
+    }
+
+    void applyDisguise(Player player, EntityType type) {
+        try {
+            DisguiseAPI.undisguiseToAll(player);
+            MobDisguise disguise = new MobDisguise(DisguiseType.getType(type));
+            DisguiseAPI.disguiseToAll(player, disguise);
+        } catch (NoClassDefFoundError | Exception e) {
+            // テスト環境等でLibsDisguises不在の場合は無視
+        }
+    }
+
+    void removeDisguise(Player player) {
+        try {
+            DisguiseAPI.undisguiseToAll(player);
+        } catch (NoClassDefFoundError | Exception e) {
+            // テスト環境等でLibsDisguises不在の場合は無視
         }
     }
 
