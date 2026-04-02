@@ -119,8 +119,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             selectedMobTypes.clear();
             gameState = GameState.SELECTING;
 
-            swarmPlayer.sendMessage(ChatColor.GREEN + "あなたはSwarmです！mobを2体選んでください（1体は非戦闘mob必須）");
-            hunterPlayer.sendMessage(ChatColor.GREEN + "あなたはHunterです！mobを2体選んでください（1体は非戦闘mob必須）");
+            swarmPlayer.sendMessage(ChatColor.GREEN + "あなたはSwarmです！mobを2体選んでください");
+            hunterPlayer.sendMessage(ChatColor.GREEN + "あなたはHunterです！mobを2体選んでください");
 
             openMobSelectionGUI(swarmPlayer);
             openMobSelectionGUI(hunterPlayer);
@@ -331,16 +331,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (selections.size() >= 2) {
             player.sendMessage(ChatColor.RED + "既に2体選択済みです。解除するには選択済みmobをクリック");
             return;
-        }
-
-        // 2体目の制約チェック: 1体は非戦闘mob必須
-        if (selections.size() == 1) {
-            boolean firstIsNonCombat = NON_COMBAT_MOBS.contains(selections.get(0));
-            boolean secondIsNonCombat = NON_COMBAT_MOBS.contains(selectedType);
-            if (!firstIsNonCombat && !secondIsNonCombat) {
-                player.sendMessage(ChatColor.RED + "1体は非戦闘mob（豚、牛等）を選んでください");
-                return;
-            }
         }
 
         selections.add(selectedType);
