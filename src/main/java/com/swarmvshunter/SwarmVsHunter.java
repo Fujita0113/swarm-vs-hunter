@@ -1,16 +1,18 @@
 package com.swarmvshunter;
 
 import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Mob;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
@@ -19,7 +21,11 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.util.*;
 
@@ -68,6 +74,76 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
     // フィールド内に配置されたmob
     Set<UUID> fieldMobs = new HashSet<>();
+
+    // Swarm変身システム
+    EntityType swarmDisguiseType = null;
+    int swarmDeathCount = 0;
+    int aggroRadius = 20;
+    Set<UUID> aggroMobs = new HashSet<>();
+    Set<UUID> provokedMobs = new HashSet<>();
+
+    // mobステータステーブル（バニラ攻撃力）
+    static final Map<EntityType, Double> MOB_ATTACK_DAMAGE = Map.ofEntries(
+            Map.entry(EntityType.ZOMBIE, 3.0),
+            Map.entry(EntityType.SKELETON, 2.0),
+            Map.entry(EntityType.SPIDER, 2.0),
+            Map.entry(EntityType.CREEPER, 0.0),
+            Map.entry(EntityType.ENDERMAN, 7.0),
+            Map.entry(EntityType.WITCH, 0.0),
+            Map.entry(EntityType.BLAZE, 6.0),
+            Map.entry(EntityType.SLIME, 3.0),
+            Map.entry(EntityType.CAVE_SPIDER, 2.0),
+            Map.entry(EntityType.ZOMBIFIED_PIGLIN, 5.0),
+            Map.entry(EntityType.PIGLIN, 5.0),
+            Map.entry(EntityType.HOGLIN, 6.0),
+            Map.entry(EntityType.VINDICATOR, 13.0),
+            Map.entry(EntityType.PILLAGER, 4.0),
+            Map.entry(EntityType.RAVAGER, 12.0),
+            Map.entry(EntityType.VEX, 9.0),
+            Map.entry(EntityType.WARDEN, 30.0)
+    );
+
+    // mobステータステーブル（バニラ移動速度）
+    static final Map<EntityType, Double> MOB_MOVEMENT_SPEED = Map.ofEntries(
+            Map.entry(EntityType.ZOMBIE, 0.23),
+            Map.entry(EntityType.SKELETON, 0.25),
+            Map.entry(EntityType.SPIDER, 0.3),
+            Map.entry(EntityType.CREEPER, 0.25),
+            Map.entry(EntityType.ENDERMAN, 0.3),
+            Map.entry(EntityType.WITCH, 0.25),
+            Map.entry(EntityType.BLAZE, 0.23),
+            Map.entry(EntityType.SLIME, 0.2),
+            Map.entry(EntityType.CAVE_SPIDER, 0.3),
+            Map.entry(EntityType.ZOMBIFIED_PIGLIN, 0.23),
+            Map.entry(EntityType.PIGLIN, 0.23),
+            Map.entry(EntityType.HOGLIN, 0.3),
+            Map.entry(EntityType.VINDICATOR, 0.35),
+            Map.entry(EntityType.PILLAGER, 0.35),
+            Map.entry(EntityType.RAVAGER, 0.3),
+            Map.entry(EntityType.VEX, 0.33),
+            Map.entry(EntityType.WARDEN, 0.3),
+            Map.entry(EntityType.PIG, 0.25),
+            Map.entry(EntityType.COW, 0.2),
+            Map.entry(EntityType.SHEEP, 0.23),
+            Map.entry(EntityType.CHICKEN, 0.25),
+            Map.entry(EntityType.RABBIT, 0.3),
+            Map.entry(EntityType.TURTLE, 0.1),
+            Map.entry(EntityType.HORSE, 0.225),
+            Map.entry(EntityType.DONKEY, 0.175),
+            Map.entry(EntityType.CAT, 0.3),
+            Map.entry(EntityType.PARROT, 0.2),
+            Map.entry(EntityType.FOX, 0.3),
+            Map.entry(EntityType.FROG, 0.25),
+            Map.entry(EntityType.MOOSHROOM, 0.2)
+    );
+
+    static double getMobAttackDamage(EntityType type) {
+        return MOB_ATTACK_DAMAGE.getOrDefault(type, 0.0);
+    }
+
+    static double getMobMovementSpeed(EntityType type) {
+        return MOB_MOVEMENT_SPEED.getOrDefault(type, 0.2);
+    }
 
     @Override
     public void onEnable() {
@@ -449,6 +525,186 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         hunter.getInventory().addItem(new ItemStack(Material.BREAD, 4));
     }
 
+    // === Swarm変身システム ===
+
+    void transformSwarm(EntityType type) {
+        // 既に変身中なら現在の敵対mobを解除
+        if (swarmDisguiseType != null) {
+            deaggroAllMobs();
+        }
+
+        swarmDisguiseType = type;
+
+        // 透明化（暫定Disguise: LibsDisguises導入まで透明+ネームタグ非表示で代用）
+        swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, true, false));
+        swarmPlayer.getInventory().clear();
+
+        // 攻撃力・移動速度をmobのバニラ値に設定
+        try {
+            AttributeInstance atkAttr = swarmPlayer.getAttribute(Attribute.ATTACK_DAMAGE);
+            if (atkAttr != null) atkAttr.setBaseValue(getMobAttackDamage(type));
+            AttributeInstance spdAttr = swarmPlayer.getAttribute(Attribute.MOVEMENT_SPEED);
+            if (spdAttr != null) spdAttr.setBaseValue(getMobMovementSpeed(type));
+        } catch (Exception e) {
+            // テスト環境等でAttribute未サポートの場合は無視
+        }
+
+        // ネームタグ非表示
+        hideSwarmNametag();
+
+        // HP1維持
+        swarmPlayer.setHealth(1.0);
+
+        // 周囲の同種mobを敵対化
+        aggroNearbyMobs(type);
+
+        swarmPlayer.sendMessage(ChatColor.GREEN + type.name() + " に変身した！周囲の同種mobがHunterを襲う！");
+        hunterPlayer.sendMessage(ChatColor.RED + "Swarmが " + type.name() + " に変身した！警戒せよ！");
+    }
+
+    void revertSwarm() {
+        // 敵対mob解除
+        deaggroAllMobs();
+
+        swarmDisguiseType = null;
+        swarmDeathCount++;
+
+        // 透明化解除
+        swarmPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
+
+        // ステータスリセット
+        try {
+            AttributeInstance atkAttr = swarmPlayer.getAttribute(Attribute.ATTACK_DAMAGE);
+            if (atkAttr != null) atkAttr.setBaseValue(1.0); // 素手
+            AttributeInstance spdAttr = swarmPlayer.getAttribute(Attribute.MOVEMENT_SPEED);
+            if (spdAttr != null) spdAttr.setBaseValue(0.1); // デフォルト
+        } catch (Exception e) {
+            // テスト環境等でAttribute未サポートの場合は無視
+        }
+
+        // ネームタグ表示復帰
+        showSwarmNametag();
+
+        // HP1でリスポーン（フィールド内ランダム位置）
+        swarmPlayer.getInventory().clear();
+        swarmPlayer.setHealth(1.0);
+        if (fieldOrigin != null) {
+            Random rand = new Random();
+            int x = fieldOrigin.getBlockX() + 3 + rand.nextInt(fieldSize - 6);
+            int z = fieldOrigin.getBlockZ() + 3 + rand.nextInt(fieldSize - 6);
+            swarmPlayer.teleport(new Location(fieldOrigin.getWorld(), x + 0.5, fieldOrigin.getBlockY() + 1, z + 0.5));
+        }
+
+        swarmPlayer.sendMessage(ChatColor.YELLOW + "Hunterに倒された！人間に戻された (死亡: " + swarmDeathCount + "/3)");
+        hunterPlayer.sendMessage(ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/3)");
+    }
+
+    void aggroNearbyMobs(EntityType type) {
+        aggroMobs.clear();
+        try {
+            for (var entity : swarmPlayer.getWorld().getNearbyEntities(swarmPlayer.getLocation(), aggroRadius, aggroRadius, aggroRadius)) {
+                if (entity.getType() == type && fieldMobs.contains(entity.getUniqueId()) && entity instanceof Mob mob) {
+                    mob.setTarget(hunterPlayer);
+                    aggroMobs.add(entity.getUniqueId());
+                }
+            }
+        } catch (Exception e) {
+            // getNearbyEntitiesがテスト環境で動かない場合は無視
+        }
+    }
+
+    void deaggroAllMobs() {
+        try {
+            World world = swarmPlayer.getWorld();
+            for (UUID id : aggroMobs) {
+                Entity entity = world.getEntity(id);
+                if (entity instanceof Mob mob) {
+                    mob.setTarget(null);
+                }
+            }
+        } catch (Exception e) {
+            // テスト環境等で無視
+        }
+        aggroMobs.clear();
+    }
+
+    void hideSwarmNametag() {
+        try {
+            Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
+            Team team = board.getTeam("svh_hidden");
+            if (team == null) {
+                team = board.registerNewTeam("svh_hidden");
+                team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
+            }
+            team.addEntry(swarmPlayer.getName());
+        } catch (Exception e) {
+            // テスト環境で無視
+        }
+    }
+
+    void showSwarmNametag() {
+        try {
+            Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
+            Team team = board.getTeam("svh_hidden");
+            if (team != null) {
+                team.removeEntry(swarmPlayer.getName());
+            }
+        } catch (Exception e) {
+            // テスト環境で無視
+        }
+    }
+
+    // === ダメージイベント処理 ===
+
+    @EventHandler
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (gameState != GameState.PLAYING) return;
+
+        // 攻撃者の特定（飛び道具の場合は射手を辿る）
+        Entity damager = event.getDamager();
+        if (damager instanceof Projectile proj && proj.getShooter() instanceof Entity shooter) {
+            damager = (Entity) shooter;
+        }
+
+        // Case 1: Swarmがフィールドmobを殴る → 挑発（mob がSwarmを狙う）
+        if (damager.equals(swarmPlayer) && fieldMobs.contains(event.getEntity().getUniqueId())) {
+            if (event.getEntity() instanceof Mob mob) {
+                provokedMobs.add(mob.getUniqueId());
+                mob.setTarget(swarmPlayer);
+            }
+            return;
+        }
+
+        // Case 2: フィールドmobがSwarmを攻撃 → 変身
+        if (event.getEntity().equals(swarmPlayer) && fieldMobs.contains(damager.getUniqueId())) {
+            event.setCancelled(true);
+            EntityType mobType = damager.getType();
+            provokedMobs.remove(damager.getUniqueId());
+            if (damager instanceof Mob mob) {
+                mob.setTarget(null);
+            }
+            transformSwarm(mobType);
+            return;
+        }
+
+        // Case 3: HunterがSwarmを攻撃 → 人間に戻す
+        if (event.getEntity().equals(swarmPlayer) && damager.equals(hunterPlayer)) {
+            event.setCancelled(true);
+            revertSwarm();
+            return;
+        }
+    }
+
+    // 環境ダメージ（落下、火等）からSwarmを保護
+    @EventHandler(priority = EventPriority.LOW)
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!event.getEntity().equals(swarmPlayer)) return;
+        if (!(event instanceof EntityDamageByEntityEvent)) {
+            event.setCancelled(true);
+        }
+    }
+
     // === mob配置 ===
     void spawnMobs() {
         if (fieldOrigin == null || selectedMobTypes.isEmpty()) return;
@@ -501,15 +757,21 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         return x >= ox && x < ox + fieldSize && z >= oz && z < oz + fieldSize;
     }
 
-    // === 中立mobシステム: EntityTargetEventキャンセル ===
+    // === 中立mobシステム: EntityTargetEventキャンセル（敵対化mob・挑発mob例外あり） ===
     @EventHandler
     public void onEntityTarget(EntityTargetEvent event) {
         if (gameState != GameState.PLAYING) return;
         if (event.getTarget() == null) return;
-        // フィールド内mobは中立化: ターゲット設定をキャンセル
-        if (fieldMobs.contains(event.getEntity().getUniqueId())) {
-            event.setCancelled(true);
-        }
+        UUID mobId = event.getEntity().getUniqueId();
+        if (!fieldMobs.contains(mobId)) return;
+
+        // 敵対化mobがHunterを狙うのは許可
+        if (aggroMobs.contains(mobId) && event.getTarget().equals(hunterPlayer)) return;
+        // 挑発されたmobがSwarmを狙うのは許可
+        if (provokedMobs.contains(mobId) && event.getTarget().equals(swarmPlayer)) return;
+
+        // それ以外のターゲット設定はキャンセル（中立化）
+        event.setCancelled(true);
     }
 
     // === フィールド生成 ===

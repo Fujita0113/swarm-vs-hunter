@@ -247,6 +247,76 @@ class SwarmVsHunterTest {
                 "カウントダウン後にPLAYINGになる");
     }
 
+    // === マイルストーン3: Swarm変身テスト ===
+
+    @Test
+    void transformSwarm_setsDisguiseType() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        plugin.transformSwarm(EntityType.ZOMBIE);
+        assertEquals(EntityType.ZOMBIE, plugin.swarmDisguiseType);
+    }
+
+    @Test
+    void transformSwarm_switchesToNewType() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        plugin.transformSwarm(EntityType.ZOMBIE);
+        plugin.transformSwarm(EntityType.SPIDER);
+        assertEquals(EntityType.SPIDER, plugin.swarmDisguiseType);
+    }
+
+    @Test
+    void revertSwarm_clearsDisguiseAndIncrementsDeathCount() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        plugin.transformSwarm(EntityType.ZOMBIE);
+        plugin.revertSwarm();
+        assertNull(plugin.swarmDisguiseType);
+        assertEquals(1, plugin.swarmDeathCount);
+    }
+
+    @Test
+    void revertSwarm_multipleTimesIncrementsCount() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        plugin.transformSwarm(EntityType.ZOMBIE);
+        plugin.revertSwarm();
+        plugin.transformSwarm(EntityType.SKELETON);
+        plugin.revertSwarm();
+        assertEquals(2, plugin.swarmDeathCount);
+    }
+
+    @Test
+    void revertSwarm_resetsHealthToOne() {
+        PlayerMock player2 = server.addPlayer();
+        startGameAndFinishCountdown(player2);
+        plugin.transformSwarm(EntityType.ZOMBIE);
+        player.setHealth(20.0);
+        plugin.revertSwarm();
+        assertEquals(1.0, player.getHealth());
+    }
+
+    @Test
+    void getMobAttackDamage_returnsCorrectValues() {
+        assertEquals(3.0, SwarmVsHunter.getMobAttackDamage(EntityType.ZOMBIE));
+        assertEquals(7.0, SwarmVsHunter.getMobAttackDamage(EntityType.ENDERMAN));
+        assertEquals(0.0, SwarmVsHunter.getMobAttackDamage(EntityType.PIG));
+        assertEquals(13.0, SwarmVsHunter.getMobAttackDamage(EntityType.VINDICATOR));
+    }
+
+    @Test
+    void getMobMovementSpeed_returnsCorrectValues() {
+        assertEquals(0.23, SwarmVsHunter.getMobMovementSpeed(EntityType.ZOMBIE), 0.01);
+        assertEquals(0.3, SwarmVsHunter.getMobMovementSpeed(EntityType.SPIDER), 0.01);
+        assertEquals(0.25, SwarmVsHunter.getMobMovementSpeed(EntityType.PIG), 0.01);
+    }
+
+    @Test
+    void swarmDeathCount_initiallyZero() {
+        assertEquals(0, plugin.swarmDeathCount);
+    }
+
     @Test
     void startGame_countdownSendsMessages() {
         PlayerMock player2 = server.addPlayer();

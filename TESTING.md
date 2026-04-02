@@ -175,6 +175,52 @@ Done (XX.XXXs)! For help, type "help"
 
 ---
 
+### マイルストーン3の確認項目
+
+> **2人必要です。** マイルストーン2と同じセットアップ。
+> **関連コード**: [SwarmVsHunter.java](src/main/java/com/swarmvshunter/SwarmVsHunter.java) の `transformSwarm`、`revertSwarm`、`aggroNearbyMobs`、`onEntityDamageByEntity`、`onEntityTarget`
+
+#### テスト F: Swarm変身（mob殴り → 変身）
+
+1. `/svh start` でゲーム開始、mob選択完了まで進める
+2. Swarm側で近くのmobを殴る
+
+- [ ] 殴ったmobがSwarmに向かって反撃してくる
+- [ ] mobの攻撃を受けるとSwarmがそのmob種に「変身」する（透明化＋ネームタグ消失）
+- [ ] 変身時メッセージ「〇〇 に変身した！」が表示される
+- [ ] Hunter側にも「Swarmが 〇〇 に変身した！」と表示される
+- [ ] Swarmは透明になり、ネームタグが見えない
+
+#### テスト G: mob敵対化
+
+- [ ] 変身した瞬間、半径20ブロック以内の同種mobがHunterに向かって移動し攻撃する
+- [ ] 同種でないmobは中立のまま
+- [ ] 敵対化したmobの中にSwarm本体が紛れている状態になる
+
+#### テスト H: Hunterによるキル → 人間に戻る
+
+1. HunterがSwarm（透明状態）を攻撃する
+
+- [ ] Swarmが人間に戻る（透明化解除、ネームタグ復活）
+- [ ] 敵対化していたmobが中立に戻る
+- [ ] Swarmがフィールド内ランダム位置にリスポーンする
+- [ ] 「Hunterに倒された！人間に戻された (死亡: X/3)」とSwarmに表示
+- [ ] 「Swarmを倒した！ (キル: X/3)」とHunterに表示
+
+#### テスト I: 変身切り替え
+
+1. 変身中のSwarmが別の種類のmobを殴る
+
+- [ ] 別のmobに反撃されると、新しいmob種に変身が切り替わる
+- [ ] 以前の敵対mobが中立に戻り、新しい同種mobが敵対化する
+
+#### テスト J: 環境ダメージ保護
+
+- [ ] Swarmが高所から落下してもダメージを受けない（HP1保護）
+- [ ] 火や溶岩でもダメージを受けない
+
+---
+
 ## Tips
 
 - **サーバーの再起動なしでプラグインを更新したい場合**:
