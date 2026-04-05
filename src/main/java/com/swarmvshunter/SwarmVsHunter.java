@@ -42,6 +42,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     enum GameState { WAITING, SELECTING, PLAYING }
     GameState gameState = GameState.WAITING;
 
+    // デバッグモード（1人テスト用）
+    boolean debugMode = false;
+
     // フィールド設定
     int fieldSize = 70;
     int mobCountPerType = 8;
@@ -55,6 +58,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     List<EntityType> selectedMobTypes = new ArrayList<>();
     Map<Player, List<EntityType>> playerSelections = new HashMap<>();
     static final String MOB_SELECT_TITLE = "mob選択 (2体選んでください)";
+    static final String MOB_SELECT_TITLE_DEBUG = "mob選択 (4体選んでください)";
 
     // 非戦闘mob一覧
     static final Set<EntityType> NON_COMBAT_MOBS = Set.of(
@@ -219,6 +223,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (args.length == 0) {
             player.sendMessage(ChatColor.YELLOW + "/svh start - ゲームを開始");
             player.sendMessage(ChatColor.YELLOW + "/svh stop - ゲームを停止");
+            player.sendMessage(ChatColor.YELLOW + "/svh debug <swarm|hunter> - デバッグモード（1人テスト）");
             return true;
         }
 
@@ -267,6 +272,41 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             return true;
         }
 
+        if (args[0].equalsIgnoreCase("debug")) {
+            if (!player.isOp()) {
+                player.sendMessage(ChatColor.RED + "デバッグモードはOP権限が必要です");
+                return true;
+            }
+            if (gameState == GameState.PLAYING || gameState == GameState.SELECTING) {
+                player.sendMessage(ChatColor.RED + "ゲームが既に進行中です");
+                return true;
+            }
+            if (args.length < 2 || (!args[1].equalsIgnoreCase("swarm") && !args[1].equalsIgnoreCase("hunter"))) {
+                player.sendMessage(ChatColor.RED + "使い方: /svh debug <swarm|hunter>");
+                return true;
+            }
+
+            debugMode = true;
+            boolean isSwarm = args[1].equalsIgnoreCase("swarm");
+
+            if (isSwarm) {
+                swarmPlayer = player;
+                hunterPlayer = null;
+                player.sendMessage(ChatColor.GREEN + "[デバッグ] あなたはSwarmです！mobを4体選んでください");
+            } else {
+                hunterPlayer = player;
+                swarmPlayer = null;
+                player.sendMessage(ChatColor.GREEN + "[デバッグ] あなたはHunterです！mobを4体選んでください");
+            }
+
+            playerSelections.clear();
+            selectedMobTypes.clear();
+            gameState = GameState.SELECTING;
+
+            openMobSelectionGUI(player);
+            return true;
+        }
+
         return false;
     }
 
@@ -276,9 +316,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     static final int SEPARATOR_ROW_START = 36; // 5行目開始
     static final int SEPARATOR_ROW_END = 44;   // 5行目終了
 
+    int getMaxSelections() {
+        return debugMode ? 4 : 2;
+    }
+
+    String getMobSelectTitle() {
+        return debugMode ? MOB_SELECT_TITLE_DEBUG : MOB_SELECT_TITLE;
+    }
+
     void openMobSelectionGUI(Player player) {
         int size = 54; // 6行チェスト
-        Inventory gui = Bukkit.createInventory(null, size, MOB_SELECT_TITLE);
+        Inventory gui = Bukkit.createInventory(null, size, getMobSelectTitle());
 
         // 1〜4行目: mob一覧
         for (int i = 0; i < SELECTABLE_MOBS.size() && i < 36; i++) {
@@ -322,9 +370,16 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             gui.setItem(i, filler.clone());
         }
 
-        // 1体目・2体目の空スロット（黒ガラス板）
-        gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
-        gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+        // 選択スロット（黒ガラス板）
+        if (debugMode) {
+            gui.setItem(46, createEmptySlot("§e1体目を選んでください"));
+            gui.setItem(47, createEmptySlot("§e2体目を選んでください"));
+            gui.setItem(49, createEmptySlot("§e3体目を選んでください"));
+            gui.setItem(50, createEmptySlot("§e4体目を選んでください"));
+        } else {
+            gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
+            gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+        }
 
         player.openInventory(gui);
     }
@@ -344,7 +399,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (gui == null || gui.getSize() != 54) return;
 
         List<EntityType> selections = playerSelections.getOrDefault(player, List.of());
-        boolean isReady = selections.size() >= 2;
+        int maxSel = getMaxSelections();
+        boolean isReady = selections.size() >= maxSel;
 
         // 1〜4行目: mob一覧の選択状態を更新
         for (int i = 0; i < SELECTABLE_MOBS.size() && i < 36; i++) {
@@ -396,15 +452,26 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
 
         // 6行目: 選択スロットを更新
-        if (selections.size() >= 1) {
-            gui.setItem(SLOT_SELECT_1, createSelectedSlot(selections.get(0), 1));
+        if (debugMode) {
+            int[] debugSlots = {46, 47, 49, 50};
+            for (int i = 0; i < 4; i++) {
+                if (selections.size() > i) {
+                    gui.setItem(debugSlots[i], createSelectedSlot(selections.get(i), i + 1));
+                } else {
+                    gui.setItem(debugSlots[i], createEmptySlot("§e" + (i + 1) + "体目を選んでください"));
+                }
+            }
         } else {
-            gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
-        }
-        if (selections.size() >= 2) {
-            gui.setItem(SLOT_SELECT_2, createSelectedSlot(selections.get(1), 2));
-        } else {
-            gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+            if (selections.size() >= 1) {
+                gui.setItem(SLOT_SELECT_1, createSelectedSlot(selections.get(0), 1));
+            } else {
+                gui.setItem(SLOT_SELECT_1, createEmptySlot("§e1体目を選んでください"));
+            }
+            if (selections.size() >= 2) {
+                gui.setItem(SLOT_SELECT_2, createSelectedSlot(selections.get(1), 2));
+            } else {
+                gui.setItem(SLOT_SELECT_2, createEmptySlot("§e2体目を選んでください"));
+            }
         }
     }
 
@@ -435,7 +502,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         if (gameState != GameState.SELECTING) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        if (!event.getView().getTitle().equals(MOB_SELECT_TITLE)) return;
+        if (!event.getView().getTitle().equals(MOB_SELECT_TITLE) && !event.getView().getTitle().equals(MOB_SELECT_TITLE_DEBUG)) return;
 
         event.setCancelled(true);
 
@@ -467,25 +534,32 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             return;
         }
 
-        // 2体選択済みなら拒否
-        if (selections.size() >= 2) {
-            player.sendMessage(ChatColor.RED + "既に2体選択済みです。解除するには選択済みmobをクリック");
+        // 選択上限チェック
+        int maxSel = getMaxSelections();
+        if (selections.size() >= maxSel) {
+            player.sendMessage(ChatColor.RED + "既に" + maxSel + "体選択済みです。解除するには選択済みmobをクリック");
             return;
         }
 
         selections.add(selectedType);
-        player.sendMessage(ChatColor.GREEN + selectedType.name() + " を選択しました (" + selections.size() + "/2)");
+        player.sendMessage(ChatColor.GREEN + selectedType.name() + " を選択しました (" + selections.size() + "/" + maxSel + ")");
         notifyOtherPlayer(player, selectedType, true);
         refreshGUI(player);
 
-        // 両者2体ずつ選択完了チェック
+        // 選択完了チェック
         if (bothPlayersReady()) {
             // 選択完了 → ゲーム開始処理
-            swarmPlayer.closeInventory();
-            hunterPlayer.closeInventory();
-            selectedMobTypes.clear();
-            selectedMobTypes.addAll(playerSelections.get(swarmPlayer));
-            selectedMobTypes.addAll(playerSelections.get(hunterPlayer));
+            if (debugMode) {
+                player.closeInventory();
+                selectedMobTypes.clear();
+                selectedMobTypes.addAll(selections);
+            } else {
+                swarmPlayer.closeInventory();
+                hunterPlayer.closeInventory();
+                selectedMobTypes.clear();
+                selectedMobTypes.addAll(playerSelections.get(swarmPlayer));
+                selectedMobTypes.addAll(playerSelections.get(hunterPlayer));
+            }
             startGame();
         }
     }
@@ -503,17 +577,26 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     }
 
     boolean bothPlayersReady() {
+        if (debugMode) {
+            Player debugPlayer = swarmPlayer != null ? swarmPlayer : hunterPlayer;
+            return playerSelections.containsKey(debugPlayer) && playerSelections.get(debugPlayer).size() == 4;
+        }
         return playerSelections.containsKey(swarmPlayer) && playerSelections.get(swarmPlayer).size() == 2
                 && playerSelections.containsKey(hunterPlayer) && playerSelections.get(hunterPlayer).size() == 2;
     }
 
+    void sendMessageToPlayer(Player player, String msg) {
+        if (player != null && player.isOnline()) player.sendMessage(msg);
+    }
+
     // === ゲーム開始処理 ===
     void startGame() {
-        swarmPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
-        hunterPlayer.sendMessage(ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
+        sendMessageToPlayer(swarmPlayer, ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
+        sendMessageToPlayer(hunterPlayer, ChatColor.GOLD + "全員の選択が完了！ゲーム開始準備中...");
 
         // フィールド生成（0,0,0を中心に固定、範囲内の最高地点を基準）
-        World world = swarmPlayer.getWorld();
+        Player activePlayer = swarmPlayer != null ? swarmPlayer : hunterPlayer;
+        World world = activePlayer.getWorld();
         int ox = -fieldSize / 2;
         int oz = -fieldSize / 2;
         int maxY = 0;
@@ -540,8 +623,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             public void run() {
                 if (count > 0) {
                     String msg = ChatColor.YELLOW + ">>> " + count + " <<<";
-                    swarmPlayer.sendMessage(msg);
-                    hunterPlayer.sendMessage(msg);
+                    sendMessageToPlayer(swarmPlayer, msg);
+                    sendMessageToPlayer(hunterPlayer, msg);
                     count--;
                 } else {
                     cancel();
@@ -554,19 +637,27 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
     void actuallyStartGame() {
         // Hunter装備
-        equipHunter(hunterPlayer);
+        if (hunterPlayer != null) equipHunter(hunterPlayer);
 
-        // Swarmは装備なし、最大HP1設定（満腹回復を防ぐ）
-        swarmPlayer.getInventory().clear();
-        AttributeInstance maxHpAttr = swarmPlayer.getAttribute(Attribute.MAX_HEALTH);
-        if (maxHpAttr != null) maxHpAttr.setBaseValue(1.0);
-        swarmPlayer.setHealth(1.0);
+        // Swarmは装備なし、最大HP1設���（満腹回復を防ぐ）
+        if (swarmPlayer != null) {
+            swarmPlayer.getInventory().clear();
+            AttributeInstance maxHpAttr = swarmPlayer.getAttribute(Attribute.MAX_HEALTH);
+            if (maxHpAttr != null) maxHpAttr.setBaseValue(1.0);
+            swarmPlayer.setHealth(1.0);
+        }
 
-        // テレポート
-        Location swarmSpawn = fieldOrigin.clone().add(fieldSize / 4.0, 1, fieldSize / 2.0);
-        Location hunterSpawn = fieldOrigin.clone().add(fieldSize * 3.0 / 4.0, 1, fieldSize / 2.0);
-        swarmPlayer.teleport(swarmSpawn);
-        hunterPlayer.teleport(hunterSpawn);
+        // ���レポート
+        Player activePlayer = swarmPlayer != null ? swarmPlayer : hunterPlayer;
+        if (debugMode) {
+            Location spawn = fieldOrigin.clone().add(fieldSize / 2.0, 1, fieldSize / 2.0);
+            activePlayer.teleport(spawn);
+        } else {
+            Location swarmSpawn = fieldOrigin.clone().add(fieldSize / 4.0, 1, fieldSize / 2.0);
+            Location hunterSpawn = fieldOrigin.clone().add(fieldSize * 3.0 / 4.0, 1, fieldSize / 2.0);
+            swarmPlayer.teleport(swarmSpawn);
+            hunterPlayer.teleport(hunterSpawn);
+        }
 
         // フィールド内の不要mob（ゲーム開始前に自然スポーンしたもの）を除去
         if (fieldOrigin != null) {
@@ -580,8 +671,12 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
 
         gameState = GameState.PLAYING;
-        swarmPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
-        hunterPlayer.sendMessage(ChatColor.GREEN + "ゲーム開始！");
+        if (debugMode) {
+            sendMessageToPlayer(activePlayer, ChatColor.GREEN + "[デバッグ] ゲーム開始！ /svh stop で終了");
+        } else {
+            sendMessageToPlayer(swarmPlayer, ChatColor.GREEN + "ゲーム開始！");
+            sendMessageToPlayer(hunterPlayer, ChatColor.GREEN + "ゲーム開始！");
+        }
 
         // 追従タスク: 10tick(0.5秒)ごとに追従mobをSwarmに向かわせる
         followTask = new BukkitRunnable() {
@@ -666,8 +761,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         // 周囲の同種mobを追従させる（狼のように）
         recruitFollowingMobs(type);
 
-        swarmPlayer.sendMessage(ChatColor.GREEN + type.name() + " に変身した！周囲の同種mobがついてくる！");
-        hunterPlayer.sendMessage(ChatColor.RED + "Swarmが " + type.name() + " に変身した！警戒せよ！");
+        swarmPlayer.sendMessage(ChatColor.GREEN + type.name() + " に変身した��周囲の同種mobがついてくる！");
+        sendMessageToPlayer(hunterPlayer, ChatColor.RED + "Swarmが " + type.name() + " に変身した！警戒せよ！");
 
         // 能力名があればアクションバーに表示
         String abilityName = ABILITY_NAMES.get(type);
@@ -716,7 +811,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
 
         swarmPlayer.sendMessage(ChatColor.YELLOW + "Hunterに倒された！人間に戻された (死亡: " + swarmDeathCount + "/3)");
-        hunterPlayer.sendMessage(ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/3)");
+        sendMessageToPlayer(hunterPlayer, ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/3)");
     }
 
     // === ゲーム停止・クリーンアップ ===
@@ -776,6 +871,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         lastAbilityUse = 0;
         selectedMobTypes.clear();
         playerSelections.clear();
+        debugMode = false;
         gameState = GameState.WAITING;
 
         Bukkit.broadcastMessage(ChatColor.GOLD + "[SVH] ゲームが停止されました");
@@ -1122,7 +1218,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     world.createExplosion(expLoc.getX(), expLoc.getY(), expLoc.getZ(), 3.0f, false, false);
                     world.spawnParticle(Particle.EXPLOSION_EMITTER, expLoc, 3, 0.5, 0.5, 0.5, 0);
                     world.spawnParticle(Particle.FLAME, expLoc, 60, 1.5, 1, 1.5, 0.15);
-                    if (hunterPlayer.getLocation().distance(expLoc) <= 5.0) {
+                    if (hunterPlayer != null && hunterPlayer.getLocation().distance(expLoc) <= 5.0) {
                         hunterPlayer.damage(8.0, swarmPlayer);
                     }
                 }
@@ -1143,7 +1239,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             public void run() {
                 Location land = swarmPlayer.getLocation();
                 land.getWorld().spawnParticle(Particle.SWEEP_ATTACK, land.add(0, 1, 0), 5, 0.8, 0.3, 0.8, 0);
-                if (hunterPlayer.getLocation().distance(land) <= 3.0) {
+                if (hunterPlayer != null && hunterPlayer.getLocation().distance(land) <= 3.0) {
                     hunterPlayer.damage(getMobAttackDamage(EntityType.ZOMBIE) + 2.0, swarmPlayer);
                     land.getWorld().playSound(land, Sound.ENTITY_PLAYER_ATTACK_STRONG, 1.0f, 0.8f);
                 }
@@ -1179,9 +1275,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 land.getWorld().spawnParticle(Particle.ITEM, land, 30, 2, 0.3, 2, 0.05,
                         new ItemStack(Material.COBWEB));
                 land.getWorld().playSound(land, Sound.ENTITY_SPIDER_STEP, 2.0f, 0.5f);
-                for (Entity e : land.getWorld().getNearbyEntities(land, 4, 4, 4)) {
-                    if (e.equals(hunterPlayer)) {
-                        hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1));
+                if (hunterPlayer != null) {
+                    for (Entity e : land.getWorld().getNearbyEntities(land, 4, 4, 4)) {
+                        if (e.equals(hunterPlayer)) {
+                            hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1));
+                        }
                     }
                 }
             }
@@ -1205,9 +1303,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 }
             }.runTaskLater(this, i * 4L);
         }
-        for (Entity e : loc.getWorld().getNearbyEntities(loc, 5, 3, 5)) {
-            if (e.equals(hunterPlayer)) {
-                hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0));
+        if (hunterPlayer != null) {
+            for (Entity e : loc.getWorld().getNearbyEntities(loc, 5, 3, 5)) {
+                if (e.equals(hunterPlayer)) {
+                    hunterPlayer.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0));
+                }
             }
         }
     }
@@ -1295,12 +1395,14 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     land.getWorld().spawnParticle(Particle.ITEM, land, 50, 2, 0.3, 2, 0.15,
                             new ItemStack(Material.SLIME_BLOCK));
                     land.getWorld().spawnParticle(Particle.EXPLOSION, land, 3, 1, 0.5, 1, 0);
-                    for (Entity e : land.getWorld().getNearbyEntities(land, 4, 2, 4)) {
-                        if (e.equals(hunterPlayer)) {
-                            hunterPlayer.damage(4.0, swarmPlayer);
-                            Vector kb = hunterPlayer.getLocation().toVector()
-                                    .subtract(land.toVector()).normalize().multiply(0.8).setY(0.4);
-                            hunterPlayer.setVelocity(kb);
+                    if (hunterPlayer != null) {
+                        for (Entity e : land.getWorld().getNearbyEntities(land, 4, 2, 4)) {
+                            if (e.equals(hunterPlayer)) {
+                                hunterPlayer.damage(4.0, swarmPlayer);
+                                Vector kb = hunterPlayer.getLocation().toVector()
+                                        .subtract(land.toVector()).normalize().multiply(0.8).setY(0.4);
+                                hunterPlayer.setVelocity(kb);
+                            }
                         }
                     }
                 }
@@ -1356,7 +1458,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             public void run() {
                 Location land = swarmPlayer.getLocation();
                 land.getWorld().spawnParticle(Particle.EXPLOSION, land, 2, 0.5, 0.3, 0.5, 0);
-                if (hunterPlayer.getLocation().distance(land) <= 3.5) {
+                if (hunterPlayer != null && hunterPlayer.getLocation().distance(land) <= 3.5) {
                     hunterPlayer.damage(getMobAttackDamage(EntityType.HOGLIN), swarmPlayer);
                     land.getWorld().playSound(land, Sound.ENTITY_HOGLIN_ATTACK, 1.5f, 1.2f);
                     Vector kb = hunterPlayer.getLocation().toVector()
@@ -1380,9 +1482,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     loc.clone().add(x, 1, z), 1, 0, 0, 0, 0);
         }
         loc.getWorld().spawnParticle(Particle.CRIT, loc.clone().add(0, 1, 0), 20, 1.5, 0.5, 1.5, 0.3);
-        for (Entity e : loc.getWorld().getNearbyEntities(loc, 3, 2, 3)) {
-            if (e.equals(hunterPlayer)) {
-                hunterPlayer.damage(getMobAttackDamage(EntityType.VINDICATOR), swarmPlayer);
+        if (hunterPlayer != null) {
+            for (Entity e : loc.getWorld().getNearbyEntities(loc, 3, 2, 3)) {
+                if (e.equals(hunterPlayer)) {
+                    hunterPlayer.damage(getMobAttackDamage(EntityType.VINDICATOR), swarmPlayer);
+                }
             }
         }
     }
@@ -1420,12 +1524,14 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             }.runTaskLater(this, ring * 2L);
         }
         loc.getWorld().spawnParticle(Particle.EXPLOSION, loc, 5, 1, 0.5, 1, 0);
-        for (Entity e : loc.getWorld().getNearbyEntities(loc, 6, 3, 6)) {
-            if (e.equals(hunterPlayer)) {
-                Vector kb = hunterPlayer.getLocation().toVector()
-                        .subtract(loc.toVector()).normalize().multiply(2.0).setY(0.6);
-                hunterPlayer.setVelocity(kb);
-                hunterPlayer.damage(6.0, swarmPlayer);
+        if (hunterPlayer != null) {
+            for (Entity e : loc.getWorld().getNearbyEntities(loc, 6, 3, 6)) {
+                if (e.equals(hunterPlayer)) {
+                    Vector kb = hunterPlayer.getLocation().toVector()
+                            .subtract(loc.toVector()).normalize().multiply(2.0).setY(0.6);
+                    hunterPlayer.setVelocity(kb);
+                    hunterPlayer.damage(6.0, swarmPlayer);
+                }
             }
         }
     }
@@ -1465,7 +1571,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             check.getWorld().spawnParticle(Particle.SONIC_BOOM, check, 1, 0, 0, 0, 0);
             check.getWorld().spawnParticle(Particle.DUST, check, 5, 0.2, 0.2, 0.2, 0,
                     new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 150, 200), 2.0f));
-            if (!hit && hunterPlayer.getLocation().distance(check) <= 2.0) {
+            if (!hit && hunterPlayer != null && hunterPlayer.getLocation().distance(check) <= 2.0) {
                 hunterPlayer.damage(10.0, swarmPlayer);
                 check.getWorld().spawnParticle(Particle.FLASH, check, 3, 0.3, 0.3, 0.3, 0);
                 hit = true;
