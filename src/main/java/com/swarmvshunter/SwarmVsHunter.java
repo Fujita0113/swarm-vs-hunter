@@ -23,6 +23,7 @@ import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.entity.PotionSplashEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -1712,6 +1713,25 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         event.setCancelled(true);
     }
 
+    // ブレイズ火球（Snowball）の着弾処理
+    @EventHandler
+    public void onBlazeFireballHit(ProjectileHitEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!(event.getEntity() instanceof Snowball snowball)) return;
+        if (!"blaze_fireball".equals(snowball.getCustomName())) return;
+        Location hit = snowball.getLocation();
+        hit.getWorld().spawnParticle(Particle.FLAME, hit, 30, 0.5, 0.5, 0.5, 0.05);
+        hit.getWorld().playSound(hit, Sound.ENTITY_BLAZE_SHOOT, 1.0f, 0.8f);
+        // 着弾地点の近くのエンティティにダメージ+炎上
+        for (Entity e : hit.getWorld().getNearbyEntities(hit, 2.5, 2.5, 2.5)) {
+            if (e.equals(swarmPlayer)) continue;
+            if (followingMobs.contains(e.getUniqueId())) continue;
+            if (!(e instanceof LivingEntity living)) continue;
+            living.damage(5.0, swarmPlayer);
+            living.setFireTicks(60);
+        }
+    }
+
     void useAbility(EntityType type) {
         // クリーパーのみクールタイム3秒
         if (type == EntityType.CREEPER) {
@@ -1769,17 +1789,16 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }.runTaskTimer(this, 0, 1);
     }
 
-    // ブレイズ: ファイアボール射撃
+    // ブレイズ: ファイアボール射撃（Snowballベースで矢のようにまっすぐ飛ぶ）
     void abilityBlaze() {
         Location eye = swarmPlayer.getEyeLocation();
         Vector dir = eye.getDirection().normalize();
         eye.getWorld().playSound(eye, Sound.ENTITY_BLAZE_SHOOT, 1.5f, 1.0f);
         eye.getWorld().spawnParticle(Particle.FLAME, eye, 15, 0.2, 0.2, 0.2, 0.08);
-        var fireball = (SmallFireball) swarmPlayer.getWorld().spawnEntity(
-                eye.add(dir), EntityType.SMALL_FIREBALL);
-        fireball.setDirection(dir);
-        fireball.setShooter(swarmPlayer);
-        fireball.setIsIncendiary(false);
+        Snowball fireball = swarmPlayer.launchProjectile(Snowball.class);
+        fireball.setVelocity(dir.multiply(1.5));
+        fireball.setFireTicks(Integer.MAX_VALUE);
+        fireball.setCustomName("blaze_fireball");
     }
 
     // ラヴェジャー: 咆哮（味方mob除外）
