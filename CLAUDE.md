@@ -77,3 +77,28 @@ JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 - **卵システム**: mob撃破→卵ドロップ→使用で味方mob確定出現。味方mobはオーナーに追従。
 - **寝取り**: Swarmが同種mob変身中にHunterの味方mob近くに来ると、その味方がSwarm側に寝返る。
 - **ブロック破壊・設置は不可**: BlockBreakEvent, BlockPlaceEventをキャンセル。
+
+## API の罠・既知の落とし穴（Skills）
+
+実装中に発見した、訓練データやドキュメントだけでは分からない落とし穴集。
+**同じミスを繰り返さないために、ハマったら必ず追記すること。**
+
+### Particle API（Paper 1.21.x）
+- **`Particle.FLASH` は使うな**: Color パラメータ必須で、渡してもバグる。代わりに `Particle.EXPLOSION` を使え
+- **`Particle.ENTITY_EFFECT` も Color 必須**: `new Particle.DustOptions(color, size)` を渡さないと実行時エラーになる
+- パーティクルで色付きエフェクトが必要な場合、`Particle.DUST` + `DustOptions` が最も安全
+
+### ポーション / ThrownPotion
+- **スプラッシュポーション**: `ThrownPotion` を spawn した後、`setShooter(player)` を必ず呼べ。設定しないと `PotionSplashEvent` で投げた本人にも効果が適用され自爆する
+- **PotionSplashEvent**: 自分と味方 mob への効果を `setIntensity(entity, 0)` で無効化しないと自滅する
+
+### mob の環境ダメージ
+- フィールド内 mob の環境ダメージ（日光・雨・水・凍結）は `EntityDamageEvent` で原因別にキャンセルする必要がある
+- **ホグリン → ゾグリン化**: `EntityTransformEvent` をキャンセルしないとネザー外で勝手に変身する
+- **エンダーマンの雨テレポ暴走**: `EntityTeleportEvent` をキャンセルしないと雨天時に無限テレポートする
+
+### GameMode
+- ゲーム開始時に `player.setGameMode(GameMode.SURVIVAL)` を明示的にセットせよ。アドベンチャーモード等が残っているとmobを攻撃できない
+
+### 爆発
+- `EntityExplodeEvent.blockList().clear()` でブロック破壊だけ無効化できる（エンティティダメージは残る）

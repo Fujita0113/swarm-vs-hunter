@@ -1091,6 +1091,13 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 event.setCancelled(true);
             }
         }
+
+        // クリーパー変身中は自分の爆発ダメージを無効化
+        if (swarmDisguiseType == EntityType.CREEPER
+                && (event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION
+                    || event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION)) {
+            event.setCancelled(true);
+        }
     }
 
     // ホグリンのゾグリン化防止（ディメンション不適合による変換をキャンセル）
