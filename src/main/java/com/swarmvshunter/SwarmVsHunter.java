@@ -1285,6 +1285,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             // === 戦闘mob ===
             case ZOMBIE -> {
                 swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false));
+                // ランダムな剣（石〜ダイヤ）
+                Material[] swords = {Material.STONE_SWORD, Material.IRON_SWORD, Material.GOLDEN_SWORD, Material.DIAMOND_SWORD};
+                swarmPlayer.getInventory().addItem(new ItemStack(swords[new Random().nextInt(swords.length)]));
             }
             case SKELETON -> {
                 ItemStack bow = new ItemStack(Material.BOW);
@@ -1323,6 +1326,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             }
             case ZOMBIFIED_PIGLIN -> {
                 swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false));
+                swarmPlayer.getInventory().addItem(new ItemStack(Material.GOLDEN_SWORD));
             }
             case PIGLIN, PILLAGER -> {
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.CROSSBOW));
