@@ -22,6 +22,7 @@ import org.bukkit.event.entity.PotionSplashEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.util.Vector;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -1246,6 +1247,76 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 }
             }
         }.runTaskLater(this, 1);
+    }
+
+    // エンダーマン: エンダーパール投げ → 即座にテレポート（ダメージなし、無限補充）
+    @EventHandler
+    public void onEnderPearlThrow(ProjectileLaunchEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!(event.getEntity() instanceof EnderPearl pearl)) return;
+        if (!(pearl.getShooter() instanceof Player shooter)) return;
+        if (!shooter.equals(swarmPlayer)) return;
+        if (swarmDisguiseType != EntityType.ENDERMAN) return;
+
+        // バニラのパール飛行をキャンセル
+        event.setCancelled(true);
+
+        // 視線方向にレイキャスト（最大40ブロック）
+        var rayResult = shooter.getWorld().rayTraceBlocks(
+                shooter.getEyeLocation(),
+                shooter.getEyeLocation().getDirection(),
+                40,
+                FluidCollisionMode.NEVER,
+                true
+        );
+
+        Location dest;
+        if (rayResult != null && rayResult.getHitBlock() != null) {
+            // ブロックにぶつかった→その手前にテレポート
+            dest = rayResult.getHitPosition().toLocation(shooter.getWorld());
+            // ブロックの面に応じて少しずらす（埋まり防止）
+            dest.add(rayResult.getHitBlockFace().getDirection().multiply(0.5));
+        } else {
+            // 何も当たらなかった→40ブロック先
+            dest = shooter.getEyeLocation().add(shooter.getEyeLocation().getDirection().multiply(40));
+        }
+
+        // 向きを維持
+        dest.setYaw(shooter.getLocation().getYaw());
+        dest.setPitch(shooter.getLocation().getPitch());
+
+        // エフェクト（出発地点）
+        Location from = shooter.getLocation();
+        from.getWorld().playSound(from, Sound.ENTITY_ENDERMAN_TELEPORT, 1.5f, 1.0f);
+        from.getWorld().spawnParticle(Particle.PORTAL, from.add(0, 1, 0), 40, 0.3, 0.5, 0.3, 0.5);
+
+        // テレポート
+        shooter.teleport(dest);
+
+        // エフェクト（到着地点）
+        dest.getWorld().playSound(dest, Sound.ENTITY_ENDERMAN_TELEPORT, 1.5f, 1.2f);
+        dest.getWorld().spawnParticle(Particle.PORTAL, dest.clone().add(0, 1, 0), 40, 0.3, 0.5, 0.3, 0.5);
+
+        // パール補充（無限）
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (swarmPlayer != null && swarmPlayer.isOnline() && swarmDisguiseType == EntityType.ENDERMAN) {
+                    swarmPlayer.getInventory().addItem(new ItemStack(Material.ENDER_PEARL, 1));
+                }
+            }
+        }.runTaskLater(this, 1);
+    }
+
+    // エンダーパールによるダメージ無効化（万が一バニラTPが発動した場合のフォールバック）
+    @EventHandler
+    public void onPlayerTeleportByPearl(PlayerTeleportEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
+        if (!event.getPlayer().equals(swarmPlayer)) return;
+        if (swarmDisguiseType != EntityType.ENDERMAN) return;
+        // バニラのパールTP自体をキャンセル（カスタムTPで処理済み）
+        event.setCancelled(true);
     }
 
     void useAbility(EntityType type) {
