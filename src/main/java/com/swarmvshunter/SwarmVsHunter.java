@@ -1123,8 +1123,14 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         UUID mobId = event.getEntity().getUniqueId();
         if (!fieldMobs.contains(mobId)) return;
 
-        // 追従mobはターゲット設定を許可（Swarmが指令した攻撃対象を狙える）
-        if (followingMobs.contains(mobId)) return;
+        // 追従mobはSwarm以外へのターゲット設定を許可（Swarmが指令した攻撃対象を狙える）
+        // Swarmを狙おうとする場合はキャンセル（味方の誤爆による敵対化防止）
+        if (followingMobs.contains(mobId)) {
+            if (event.getTarget().equals(swarmPlayer)) {
+                event.setCancelled(true);
+            }
+            return;
+        }
         // 挑発されたmobがSwarmを狙うのは許可
         if (provokedMobs.contains(mobId) && event.getTarget().equals(swarmPlayer)) return;
 
