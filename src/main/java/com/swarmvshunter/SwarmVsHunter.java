@@ -86,7 +86,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             EntityType.ENDERMAN, EntityType.WITCH, EntityType.BLAZE, EntityType.SLIME,
             EntityType.CAVE_SPIDER, EntityType.ZOMBIFIED_PIGLIN, EntityType.PIGLIN,
             EntityType.HOGLIN, EntityType.VINDICATOR, EntityType.PILLAGER,
-            EntityType.RAVAGER, EntityType.VEX, EntityType.WARDEN
+            EntityType.RAVAGER, EntityType.VEX
     );
 
     // フィールド内に配置されたmob
@@ -106,7 +106,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
     // 右クリック能力を持つmob（それ以外はアイテム付与 or パッシブのみ）
     static final Set<EntityType> RIGHT_CLICK_ABILITY_MOBS = Set.of(
-            EntityType.CREEPER, EntityType.BLAZE, EntityType.RAVAGER, EntityType.WARDEN
+            EntityType.CREEPER, EntityType.BLAZE, EntityType.RAVAGER
     );
 
     // mobステータステーブル（バニラ攻撃力）
@@ -126,8 +126,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.VINDICATOR, 13.0),
             Map.entry(EntityType.PILLAGER, 4.0),
             Map.entry(EntityType.RAVAGER, 12.0),
-            Map.entry(EntityType.VEX, 9.0),
-            Map.entry(EntityType.WARDEN, 30.0)
+            Map.entry(EntityType.VEX, 9.0)
     );
 
     // mobステータステーブル（バニラ移動速度）
@@ -148,7 +147,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.PILLAGER, 0.35),
             Map.entry(EntityType.RAVAGER, 0.3),
             Map.entry(EntityType.VEX, 0.33),
-            Map.entry(EntityType.WARDEN, 0.3),
             Map.entry(EntityType.PIG, 0.25),
             Map.entry(EntityType.COW, 0.2),
             Map.entry(EntityType.SHEEP, 0.23),
@@ -1415,7 +1413,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             case CREEPER -> abilityCreeper();
             case BLAZE -> abilityBlaze();
             case RAVAGER -> abilityRavager();
-            case WARDEN -> abilityWarden();
             default -> {}
         }
     }
@@ -1502,28 +1499,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
-    // ウォーデン: ソニックブーム（前方15ブロック貫通）
-    void abilityWarden() {
-        Location eye = swarmPlayer.getEyeLocation();
-        Vector dir = eye.getDirection().normalize();
-        eye.getWorld().playSound(eye, Sound.ENTITY_WARDEN_SONIC_BOOM, 3.0f, 1.0f);
-        eye.getWorld().playSound(eye, Sound.ENTITY_WARDEN_SONIC_CHARGE, 2.0f, 1.0f);
-        Set<UUID> alreadyHit = new HashSet<>();
-        for (int i = 1; i <= 15; i++) {
-            Location check = eye.clone().add(dir.clone().multiply(i));
-            check.getWorld().spawnParticle(Particle.SONIC_BOOM, check, 1, 0, 0, 0, 0);
-            for (Entity e : check.getWorld().getNearbyEntities(check, 1.5, 1.5, 1.5)) {
-                if (e.equals(swarmPlayer)) continue;
-                if (followingMobs.contains(e.getUniqueId())) continue;
-                if (alreadyHit.contains(e.getUniqueId())) continue;
-                if (e instanceof LivingEntity living) {
-                    living.damage(10.0, swarmPlayer);
-                    alreadyHit.add(e.getUniqueId());
-                }
-            }
-        }
-    }
-
     // === mob別パッシブ効果・アイテム付与 ===
 
     void applyMobAbilities(EntityType type) {
@@ -1596,9 +1571,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 swarmPlayer.setAllowFlight(true);
                 swarmPlayer.setFlying(true);
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.IRON_SWORD));
-            }
-            case WARDEN -> {
-                // 右クリでソニックブーム（onPlayerInteractで処理）
             }
             default -> {}
         }
