@@ -97,6 +97,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     int swarmDeathCount = 0;
     int aggroRadius = 20;
     Set<UUID> followingMobs = new HashSet<>(); // Swarmに追従する同種mob
+    long lastAbilityTime = 0; // 能力クールタイム管理
     Set<UUID> provokedMobs = new HashSet<>();
     BukkitRunnable followTask = null; // 追従タスク
 
@@ -1327,6 +1328,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     }
 
     void useAbility(EntityType type) {
+        // クリーパーのみクールタイム3秒
+        if (type == EntityType.CREEPER) {
+            long now = System.currentTimeMillis();
+            if (now - lastAbilityTime < 3000) {
+                long remaining = (3000 - (now - lastAbilityTime)) / 1000 + 1;
+                swarmPlayer.sendActionBar(net.kyori.adventure.text.Component.text(
+                        "§c爆発クールタイム: あと" + remaining + "秒"));
+                return;
+            }
+            lastAbilityTime = now;
+        }
         switch (type) {
             case CREEPER -> abilityCreeper();
             case BLAZE -> abilityBlaze();
