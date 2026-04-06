@@ -1357,6 +1357,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     cancel();
                     Location expLoc = swarmPlayer.getLocation();
                     world.createExplosion(expLoc.getX(), expLoc.getY(), expLoc.getZ(), 3.0f, false, false);
+                    // 自分を爆発の反動で後方にノックバック
+                    Vector knockback = swarmPlayer.getLocation().getDirection().normalize().multiply(-1.5);
+                    knockback.setY(0.5);
+                    swarmPlayer.setVelocity(knockback);
                     for (Entity e : world.getNearbyEntities(expLoc, 5, 5, 5)) {
                         if (e.equals(swarmPlayer)) continue;
                         if (followingMobs.contains(e.getUniqueId())) continue;
