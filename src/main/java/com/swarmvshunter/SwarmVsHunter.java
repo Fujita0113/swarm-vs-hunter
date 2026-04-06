@@ -15,6 +15,8 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
+import org.bukkit.event.entity.EntityTeleportEvent;
+import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -1048,31 +1050,62 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
-    // Swarmのダメージ処理: 環境ダメージはそのまま通す（死亡可能）、mob攻撃は変身トリガー（onEntityDamageByEntityで処理済み）
+    // === フィールド内環境ダメージ無効（全mob + Swarm変身中） ===
+    private static final java.util.Set<EntityDamageEvent.DamageCause> ENVIRONMENTAL_CAUSES = java.util.EnumSet.of(
+            EntityDamageEvent.DamageCause.FIRE, EntityDamageEvent.DamageCause.FIRE_TICK,
+            EntityDamageEvent.DamageCause.LAVA, EntityDamageEvent.DamageCause.DROWNING,
+            EntityDamageEvent.DamageCause.DRYOUT, EntityDamageEvent.DamageCause.FREEZE,
+            EntityDamageEvent.DamageCause.HOT_FLOOR);
+
+    @EventHandler(priority = EventPriority.LOW)
+    public void onEntityDamageEnvironment(EntityDamageEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!ENVIRONMENTAL_CAUSES.contains(event.getCause())) return;
+
+        // フィールドmobの環境ダメージ無効
+        if (fieldMobs.contains(event.getEntity().getUniqueId())) {
+            event.setCancelled(true);
+            return;
+        }
+
+        // Swarm変身中の環境ダメージ無効（雨、炎、溶岩等）
+        if (event.getEntity().equals(swarmPlayer) && swarmDisguiseType != null) {
+            event.setCancelled(true);
+            return;
+        }
+    }
+
+    // Swarm変身中のmob固有耐性（落下ダメージ無効等 — フィールドルールではカバーしない）
     @EventHandler(priority = EventPriority.LOW)
     public void onEntityDamage(EntityDamageEvent event) {
         if (gameState != GameState.PLAYING) return;
         if (!event.getEntity().equals(swarmPlayer)) return;
+        if (swarmDisguiseType == null) return;
 
-        // 変身中の環境ダメージ耐性
-        if (swarmDisguiseType != null) {
-            var cause = event.getCause();
-            // 落下ダメージ無効: スパイダー、洞窟グモ、スライム、カエル、猫
-            if (cause == EntityDamageEvent.DamageCause.FALL) {
-                if (swarmDisguiseType == EntityType.SPIDER || swarmDisguiseType == EntityType.CAVE_SPIDER
-                        || swarmDisguiseType == EntityType.SLIME) {
-                    event.setCancelled(true);
-                    return;
-                }
+        if (event.getCause() == EntityDamageEvent.DamageCause.FALL) {
+            if (swarmDisguiseType == EntityType.SPIDER || swarmDisguiseType == EntityType.CAVE_SPIDER
+                    || swarmDisguiseType == EntityType.SLIME) {
+                event.setCancelled(true);
             }
-            // 炎・溶岩ダメージ無効: ブレイズ、ゾンビピグリン（PotionEffectでも効くが念のため）
-            if (cause == EntityDamageEvent.DamageCause.FIRE || cause == EntityDamageEvent.DamageCause.FIRE_TICK
-                    || cause == EntityDamageEvent.DamageCause.LAVA) {
-                if (swarmDisguiseType == EntityType.BLAZE || swarmDisguiseType == EntityType.ZOMBIFIED_PIGLIN) {
-                    event.setCancelled(true);
-                    return;
-                }
-            }
+        }
+    }
+
+    // ホグリンのゾグリン化防止（ディメンション不適合による変換をキャンセル）
+    @EventHandler
+    public void onEntityTransform(EntityTransformEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (fieldMobs.contains(event.getEntity().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    // エンダーマンの雨テレポ暴走防止（フィールドmobのエンダーマンが勝手にTPしないようにする）
+    @EventHandler
+    public void onEntityTeleport(EntityTeleportEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (event.getEntity().getType() == EntityType.ENDERMAN
+                && fieldMobs.contains(event.getEntity().getUniqueId())) {
+            event.setCancelled(true);
         }
     }
 
