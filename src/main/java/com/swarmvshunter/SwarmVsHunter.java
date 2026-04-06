@@ -15,6 +15,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
@@ -1107,6 +1108,13 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 && fieldMobs.contains(event.getEntity().getUniqueId())) {
             event.setCancelled(true);
         }
+    }
+
+    // クリーパー爆発によるブロック破壊を防止
+    @EventHandler
+    public void onEntityExplode(EntityExplodeEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        event.blockList().clear();
     }
 
     // === mob配置 ===
