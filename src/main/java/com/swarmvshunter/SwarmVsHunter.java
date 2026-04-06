@@ -91,7 +91,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             EntityType.ENDERMAN, EntityType.WITCH, EntityType.BLAZE, EntityType.SLIME,
             EntityType.CAVE_SPIDER, EntityType.ZOMBIFIED_PIGLIN,
             EntityType.VINDICATOR, EntityType.PILLAGER,
-            EntityType.RAVAGER, EntityType.VEX
+            EntityType.RAVAGER, EntityType.VEX,
+            EntityType.WITHER_SKELETON, EntityType.SHULKER,
+            EntityType.DROWNED, EntityType.IRON_GOLEM
     );
 
     // フィールド内に配置されたmob
@@ -125,7 +127,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
     // 右クリック能力を持つmob（それ以外はアイテム付与 or パッシブのみ）
     static final Set<EntityType> RIGHT_CLICK_ABILITY_MOBS = Set.of(
-            EntityType.CREEPER, EntityType.BLAZE, EntityType.RAVAGER
+            EntityType.CREEPER, EntityType.BLAZE, EntityType.RAVAGER, EntityType.SHULKER
     );
 
     // mobステータステーブル（バニラ攻撃力）
@@ -143,7 +145,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.VINDICATOR, 13.0),
             Map.entry(EntityType.PILLAGER, 4.0),
             Map.entry(EntityType.RAVAGER, 12.0),
-            Map.entry(EntityType.VEX, 9.0)
+            Map.entry(EntityType.VEX, 9.0),
+            Map.entry(EntityType.WITHER_SKELETON, 8.0),
+            Map.entry(EntityType.SHULKER, 0.12),
+            Map.entry(EntityType.DROWNED, 3.0),
+            Map.entry(EntityType.IRON_GOLEM, 15.0)
     );
 
     // mobステータステーブル（バニラ移動速度）
@@ -174,7 +180,11 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.PARROT, 0.2),
             Map.entry(EntityType.FOX, 0.3),
             Map.entry(EntityType.FROG, 0.25),
-            Map.entry(EntityType.MOOSHROOM, 0.2)
+            Map.entry(EntityType.MOOSHROOM, 0.2),
+            Map.entry(EntityType.WITHER_SKELETON, 0.35),
+            Map.entry(EntityType.SHULKER, 0.12),
+            Map.entry(EntityType.DROWNED, 0.23),
+            Map.entry(EntityType.IRON_GOLEM, 0.25)
     );
 
     static double getMobAttackDamage(EntityType type) {
@@ -1248,6 +1258,16 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             if (swarmDisguiseType == EntityType.CAVE_SPIDER) {
                 target.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0));
             }
+            // ウィザースケルトン: 攻撃ヒット時に衰弱付与（10秒）
+            if (swarmDisguiseType == EntityType.WITHER_SKELETON) {
+                target.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, 200, 0));
+            }
+            // アイアンゴーレム: 攻撃ヒット時に大ノックバック（上方向に吹き飛ばす）
+            if (swarmDisguiseType == EntityType.IRON_GOLEM) {
+                Vector kb = target.getLocation().toVector()
+                        .subtract(swarmPlayer.getLocation().toVector()).normalize().multiply(1.5).setY(0.8);
+                target.setVelocity(kb);
+            }
         }
 
         // Case 1a: Swarmが変身中にHunterを攻撃 → 追従mobもHunterを攻撃
@@ -1345,7 +1365,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         if (event.getCause() == EntityDamageEvent.DamageCause.FALL) {
             if (swarmDisguiseType == EntityType.SPIDER || swarmDisguiseType == EntityType.CAVE_SPIDER
-                    || swarmDisguiseType == EntityType.SLIME) {
+                    || swarmDisguiseType == EntityType.SLIME || swarmDisguiseType == EntityType.IRON_GOLEM
+                    || swarmDisguiseType == EntityType.SHULKER) {
                 event.setCancelled(true);
             }
         }
@@ -1411,11 +1432,32 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             ));
             egg.setItemMeta(meta);
         }
-        event.getEntity().getWorld().dropItemNaturally(event.getEntity().getLocation(), egg);
+        Location dropLoc = event.getEntity().getLocation();
+        World dropWorld = event.getEntity().getWorld();
+        dropWorld.dropItemNaturally(dropLoc, egg);
+
+        // 非戦闘mob: 焼き肉を追加ドロップ（食料としての価値）
+        Material cookedMeat = getCookedMeatDrop(type);
+        if (cookedMeat != null) {
+            dropWorld.dropItemNaturally(dropLoc, new ItemStack(cookedMeat, 1 + new Random().nextInt(2)));
+        }
 
         // fieldMobsから除去
         fieldMobs.remove(mobId);
         followingMobs.remove(mobId);
+    }
+
+    // 非戦闘mobの焼き肉ドロップテーブル
+    static Material getCookedMeatDrop(EntityType type) {
+        return switch (type) {
+            case PIG -> Material.COOKED_PORKCHOP;
+            case COW, MOOSHROOM -> Material.COOKED_BEEF;
+            case SHEEP -> Material.COOKED_MUTTON;
+            case CHICKEN -> Material.COOKED_CHICKEN;
+            case RABBIT -> Material.COOKED_RABBIT;
+            case DONKEY, HORSE -> Material.LEATHER;
+            default -> null;
+        };
     }
 
     // SVH卵かどうかの判定
@@ -1732,6 +1774,24 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
+    // シュルカー弾の着弾処理（浮遊効果付与）
+    @EventHandler
+    public void onShulkerBulletHit(ProjectileHitEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!(event.getEntity() instanceof Snowball snowball)) return;
+        if (!"shulker_bullet".equals(snowball.getCustomName())) return;
+        Location hit = snowball.getLocation();
+        hit.getWorld().spawnParticle(Particle.END_ROD, hit, 20, 0.3, 0.3, 0.3, 0.05);
+        hit.getWorld().playSound(hit, Sound.ENTITY_SHULKER_BULLET_HIT, 1.0f, 1.0f);
+        for (Entity e : hit.getWorld().getNearbyEntities(hit, 2, 2, 2)) {
+            if (e.equals(swarmPlayer)) continue;
+            if (followingMobs.contains(e.getUniqueId())) continue;
+            if (!(e instanceof LivingEntity living)) continue;
+            living.damage(4.0, swarmPlayer);
+            living.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, 60, 1));
+        }
+    }
+
     void useAbility(EntityType type) {
         // クリーパーのみクールタイム3秒
         if (type == EntityType.CREEPER) {
@@ -1748,6 +1808,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             case CREEPER -> abilityCreeper();
             case BLAZE -> abilityBlaze();
             case RAVAGER -> abilityRavager();
+            case SHULKER -> abilityShulker();
             default -> {}
         }
     }
@@ -1755,22 +1816,38 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     // === 右クリック能力（クールタイムなし） ===
     // === 右クリック能力（クールタイムなし） ===
 
-    // クリーパー: 爆発（Swarm自身ノーダメージ、味方mob除外）
+    // クリーパー: 爆発（膨張演出 + Swarm自身ノーダメージ、味方mob除外）
     void abilityCreeper() {
         Location loc = swarmPlayer.getLocation();
         World world = loc.getWorld();
         world.playSound(loc, Sound.ENTITY_CREEPER_PRIMED, 2.0f, 1.0f);
+
+        // LibsDisguisesのクリーパー膨張フラグをセット（本物のクリーパーと同じ見た目）
+        try {
+            var disguise = DisguiseAPI.getDisguise(swarmPlayer);
+            if (disguise instanceof MobDisguise mobDisguise) {
+                var watcher = (me.libraryaddict.disguise.disguisetypes.watchers.CreeperWatcher) mobDisguise.getWatcher();
+                watcher.setIgnited(true);
+            }
+        } catch (Exception e) { /* LibsDisguises未使用時は無視 */ }
+
         new BukkitRunnable() {
             int tick = 0;
             @Override
             public void run() {
-                if (gameState != GameState.PLAYING || swarmDisguiseType == null) { cancel(); return; }
+                if (gameState != GameState.PLAYING || swarmDisguiseType == null) {
+                    // 膨張解除
+                    resetCreeperSwell();
+                    cancel();
+                    return;
+                }
                 tick++;
                 Location current = swarmPlayer.getLocation().add(0, 1, 0);
-                world.spawnParticle(Particle.EXPLOSION, current, 1, 0, 0, 0, 0);
-                world.spawnParticle(Particle.SMOKE, current, 8, 0.3, 0.5, 0.3, 0.02);
-                if (tick >= 15) {
+                world.spawnParticle(Particle.SMOKE, current, 5, 0.3, 0.5, 0.3, 0.02);
+                if (tick >= 30) {
                     cancel();
+                    // 膨張解除
+                    resetCreeperSwell();
                     Location expLoc = swarmPlayer.getLocation();
                     world.createExplosion(expLoc.getX(), expLoc.getY(), expLoc.getZ(), 3.0f, false, false);
                     // 自分を爆発の反動で後方にノックバック
@@ -1787,6 +1864,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 }
             }
         }.runTaskTimer(this, 0, 1);
+    }
+
+    // クリーパー膨張状態をリセット
+    void resetCreeperSwell() {
+        try {
+            var disguise = DisguiseAPI.getDisguise(swarmPlayer);
+            if (disguise instanceof MobDisguise mobDisguise
+                    && mobDisguise.getWatcher() instanceof me.libraryaddict.disguise.disguisetypes.watchers.CreeperWatcher watcher) {
+                watcher.setIgnited(false);
+            }
+        } catch (Exception e) { /* 無視 */ }
     }
 
     // ブレイズ: ファイアボール射撃（Snowballベースで矢のようにまっすぐ飛ぶ）
@@ -1831,6 +1919,33 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 living.damage(6.0, swarmPlayer);
             }
         }
+    }
+
+    // シュルカー: 追尾弾（浮遊効果付与）
+    void abilityShulker() {
+        Location eye = swarmPlayer.getEyeLocation();
+        Vector dir = eye.getDirection().normalize();
+        eye.getWorld().playSound(eye, Sound.ENTITY_SHULKER_SHOOT, 1.5f, 1.0f);
+        eye.getWorld().spawnParticle(Particle.END_ROD, eye, 10, 0.2, 0.2, 0.2, 0.05);
+        Snowball bullet = swarmPlayer.launchProjectile(Snowball.class);
+        bullet.setVelocity(dir.multiply(1.0));
+        bullet.setCustomName("shulker_bullet");
+        bullet.setGravity(false);
+        // 追尾タスク: 最も近いプレイヤー（Hunter）に向かって軌道修正
+        new BukkitRunnable() {
+            int life = 0;
+            @Override
+            public void run() {
+                if (!bullet.isValid() || life++ > 60) { cancel(); return; }
+                if (hunterPlayer == null || !hunterPlayer.isOnline()) return;
+                Location target = hunterPlayer.getLocation().add(0, 1, 0);
+                Vector toTarget = target.toVector().subtract(bullet.getLocation().toVector()).normalize();
+                Vector current = bullet.getVelocity();
+                // 緩やかに追尾（現在速度70% + ターゲット方向30%）
+                bullet.setVelocity(current.multiply(0.7).add(toTarget.multiply(0.3)).normalize().multiply(1.0));
+                bullet.getWorld().spawnParticle(Particle.END_ROD, bullet.getLocation(), 1, 0, 0, 0, 0);
+            }
+        }.runTaskTimer(this, 2, 1);
     }
 
     // === mob別パッシブ効果・アイテム付与 ===
@@ -1902,6 +2017,25 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 swarmPlayer.setAllowFlight(true);
                 swarmPlayer.setFlying(true);
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.IRON_SWORD));
+            }
+            case WITHER_SKELETON -> {
+                swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false));
+                swarmPlayer.getInventory().addItem(new ItemStack(Material.STONE_SWORD));
+            }
+            case SHULKER -> {
+                // 右クリでシュルカー弾（onPlayerInteractで処理）
+                // シュルカーは足が遅い代わりに防御力付与
+                swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, Integer.MAX_VALUE, 1, false, false));
+            }
+            case DROWNED -> {
+                // トライデント投げ（3本、無限補充）
+                ItemStack trident = new ItemStack(Material.TRIDENT);
+                trident.addEnchantment(Enchantment.LOYALTY, 3);
+                swarmPlayer.getInventory().addItem(trident);
+            }
+            case IRON_GOLEM -> {
+                // 素手の超高火力（攻撃力15はステータステーブルで設定済み）
+                // 攻撃時にノックバック付与（onEntityDamageByEntityで処理）
             }
             default -> {}
         }
