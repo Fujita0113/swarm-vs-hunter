@@ -1244,7 +1244,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 if (gameState != GameState.PLAYING || swarmDisguiseType == null) { cancel(); return; }
                 tick++;
                 Location current = swarmPlayer.getLocation().add(0, 1, 0);
-                world.spawnParticle(Particle.FLASH, current, 1, 0, 0, 0, 0);
+                world.spawnParticle(Particle.EXPLOSION, current, 1, 0, 0, 0, 0);
                 world.spawnParticle(Particle.SMOKE, current, 8, 0.3, 0.5, 0.3, 0.02);
                 if (tick >= 15) { // 0.75秒後に爆発
                     cancel();
@@ -1333,7 +1333,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     Location center = swarmPlayer.getLocation().add(0, 1, 0);
                     center.getWorld().spawnParticle(Particle.ITEM, center, 40, 3, 1.5, 3, 0.05,
                             new ItemStack(Material.FERMENTED_SPIDER_EYE));
-                    center.getWorld().spawnParticle(Particle.ENTITY_EFFECT, center, 20, 2, 1, 2, 1);
+                    center.getWorld().spawnParticle(Particle.ENTITY_EFFECT, center, 20, 2, 1, 2, 1,
+                            org.bukkit.Color.fromRGB(100, 0, 150));
                 }
             }.runTaskLater(this, i * 4L);
         }
@@ -1598,7 +1599,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         Vector dir = eye.getDirection().normalize();
         eye.getWorld().playSound(eye, Sound.ENTITY_WARDEN_SONIC_BOOM, 3.0f, 1.0f);
         eye.getWorld().playSound(eye, Sound.ENTITY_WARDEN_SONIC_CHARGE, 2.0f, 1.0f);
-        eye.getWorld().spawnParticle(Particle.FLASH, eye, 2, 0, 0, 0, 0);
+        eye.getWorld().spawnParticle(Particle.EXPLOSION, eye, 2, 0, 0, 0, 0);
         boolean hit = false;
         for (int i = 1; i <= 15; i++) {
             Location check = eye.clone().add(dir.clone().multiply(i));
@@ -1607,7 +1608,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                     new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 150, 200), 2.0f));
             if (!hit && hunterPlayer != null && hunterPlayer.getLocation().distance(check) <= 2.0) {
                 hunterPlayer.damage(10.0, swarmPlayer);
-                check.getWorld().spawnParticle(Particle.FLASH, check, 3, 0.3, 0.3, 0.3, 0);
+                check.getWorld().spawnParticle(Particle.EXPLOSION, check, 3, 0.3, 0.3, 0.3, 0);
                 hit = true;
             }
         }
