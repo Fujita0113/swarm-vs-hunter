@@ -84,8 +84,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             // 戦闘mob
             EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER, EntityType.CREEPER,
             EntityType.ENDERMAN, EntityType.WITCH, EntityType.BLAZE, EntityType.SLIME,
-            EntityType.CAVE_SPIDER, EntityType.ZOMBIFIED_PIGLIN, EntityType.PIGLIN,
-            EntityType.HOGLIN, EntityType.VINDICATOR, EntityType.PILLAGER,
+            EntityType.CAVE_SPIDER, EntityType.ZOMBIFIED_PIGLIN,
+            EntityType.VINDICATOR, EntityType.PILLAGER,
             EntityType.RAVAGER, EntityType.VEX
     );
 
@@ -121,8 +121,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.SLIME, 3.0),
             Map.entry(EntityType.CAVE_SPIDER, 2.0),
             Map.entry(EntityType.ZOMBIFIED_PIGLIN, 5.0),
-            Map.entry(EntityType.PIGLIN, 5.0),
-            Map.entry(EntityType.HOGLIN, 6.0),
             Map.entry(EntityType.VINDICATOR, 13.0),
             Map.entry(EntityType.PILLAGER, 4.0),
             Map.entry(EntityType.RAVAGER, 12.0),
@@ -141,8 +139,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             Map.entry(EntityType.SLIME, 0.2),
             Map.entry(EntityType.CAVE_SPIDER, 0.3),
             Map.entry(EntityType.ZOMBIFIED_PIGLIN, 0.23),
-            Map.entry(EntityType.PIGLIN, 0.23),
-            Map.entry(EntityType.HOGLIN, 0.3),
             Map.entry(EntityType.VINDICATOR, 0.35),
             Map.entry(EntityType.PILLAGER, 0.35),
             Map.entry(EntityType.RAVAGER, 0.3),
@@ -903,7 +899,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             // Pass 2: 怒りクリア（respawnでUUID変わる場合あり）→ followingMobsに登録
             for (Mob mob : recruits) {
                 mob.setTarget(null);
-                clearMobAnger(mob); // Piglin/Hoglinはrespawnされ、followingMobsに新UUIDが入る
+                clearMobAnger(mob); // Piglinはrespawnされ、followingMobsに新UUIDが入る
                 // respawnされなかったmob（PigZombie等）はここで追加
                 if (mob.isValid() && !mob.isDead()) {
                     followingMobs.add(mob.getUniqueId());
@@ -921,9 +917,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             pigZombie.setAngry(false);
             pigZombie.setAnger(0);
         }
-        // Piglin/Hoglin: Brain系は内部メモリに怒りが残るためAPIでは消せない
+        // Piglin: Brain系は内部メモリに怒りが残るためAPIでは消せない
         // → 削除して同じ位置に新品を再スポーンする
-        if (mob instanceof Piglin || mob instanceof Hoglin) {
+        if (mob instanceof Piglin) {
             respawnMobClean(mob);
         }
     }
@@ -957,8 +953,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             pigZombie.setAnger(0);
             return;
         }
-        // Piglin/Hoglin: 次tickでrespawnクリア
-        if (mob instanceof Piglin || mob instanceof Hoglin) {
+        // Piglin: 次tickでrespawnクリア
+        if (mob instanceof Piglin) {
             Bukkit.getScheduler().runTaskLater(this, () -> {
                 if (mob.isValid() && !mob.isDead() && fieldMobs.contains(mob.getUniqueId())) {
                     respawnMobClean(mob);
@@ -1061,12 +1057,6 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             // 洞窟グモ: 攻撃ヒット時に毒付与
             if (swarmDisguiseType == EntityType.CAVE_SPIDER) {
                 target.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 0));
-            }
-            // ホグリン: 攻撃ヒット時に高ノックバック
-            if (swarmDisguiseType == EntityType.HOGLIN) {
-                Vector kb = target.getLocation().toVector()
-                        .subtract(swarmPlayer.getLocation().toVector()).normalize().multiply(1.5).setY(0.5);
-                target.setVelocity(kb);
             }
         }
 
@@ -1554,12 +1544,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false));
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.GOLDEN_SWORD));
             }
-            case PIGLIN, PILLAGER -> {
+            case PILLAGER -> {
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.CROSSBOW));
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.ARROW, 64));
-            }
-            case HOGLIN -> {
-                // 高ノックバック: onEntityDamageByEntityで処理
             }
             case VINDICATOR -> {
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.IRON_AXE));
