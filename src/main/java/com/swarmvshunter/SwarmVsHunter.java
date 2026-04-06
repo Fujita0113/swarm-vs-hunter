@@ -18,6 +18,7 @@ import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
+import org.bukkit.event.entity.PotionSplashEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -1210,6 +1211,22 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         useAbility(swarmDisguiseType);
     }
 
+    // ウィッチ: スプラッシュポーション自爆防止
+    @EventHandler
+    public void onPotionSplash(PotionSplashEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!(event.getPotion().getShooter() instanceof Player shooter)) return;
+        if (!shooter.equals(swarmPlayer)) return;
+        if (swarmDisguiseType != EntityType.WITCH) return;
+        // 自分と味方mobへの効果を除外
+        event.setIntensity(swarmPlayer, 0);
+        for (LivingEntity affected : event.getAffectedEntities()) {
+            if (followingMobs.contains(affected.getUniqueId())) {
+                event.setIntensity(affected, 0);
+            }
+        }
+    }
+
     // ウィッチ: ポーション無限補充（投げたら同じものを1tick後に補充）
     @EventHandler
     public void onPotionThrow(ProjectileLaunchEvent event) {
@@ -1421,10 +1438,22 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
+    private static final Map<PotionEffectType, String> POTION_NAMES = Map.of(
+        PotionEffectType.POISON, ChatColor.GREEN + "毒のスプラッシュ",
+        PotionEffectType.INSTANT_DAMAGE, ChatColor.RED + "ダメージのスプラッシュ",
+        PotionEffectType.SLOWNESS, ChatColor.GRAY + "鈍化のスプラッシュ",
+        PotionEffectType.WEAKNESS, ChatColor.DARK_GRAY + "弱体化のスプラッシュ",
+        PotionEffectType.SPEED, ChatColor.AQUA + "俊敏のスプラッシュ",
+        PotionEffectType.JUMP_BOOST, ChatColor.YELLOW + "跳躍のスプラッシュ",
+        PotionEffectType.LEVITATION, ChatColor.WHITE + "浮遊のスプラッシュ"
+    );
+
     ItemStack makeSplashPotion(PotionEffectType effectType, int duration, int amplifier) {
         ItemStack potion = new ItemStack(Material.SPLASH_POTION);
         org.bukkit.inventory.meta.PotionMeta meta = (org.bukkit.inventory.meta.PotionMeta) potion.getItemMeta();
         meta.addCustomEffect(new PotionEffect(effectType, duration, amplifier), true);
+        String name = POTION_NAMES.getOrDefault(effectType, ChatColor.WHITE + "スプラッシュポーション");
+        meta.setDisplayName(name);
         potion.setItemMeta(meta);
         return potion;
     }
