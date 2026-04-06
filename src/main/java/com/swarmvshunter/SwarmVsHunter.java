@@ -640,14 +640,17 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             swarmPlayer.setHealth(1.0);
         }
 
-        // ���レポート
+        // テレポート
         Player activePlayer = swarmPlayer != null ? swarmPlayer : hunterPlayer;
         if (debugMode) {
             Location spawn = fieldOrigin.clone().add(fieldSize / 2.0, 1, fieldSize / 2.0);
+            clearSpawnArea(spawn);
             activePlayer.teleport(spawn);
         } else {
             Location swarmSpawn = fieldOrigin.clone().add(fieldSize / 4.0, 1, fieldSize / 2.0);
             Location hunterSpawn = fieldOrigin.clone().add(fieldSize * 3.0 / 4.0, 1, fieldSize / 2.0);
+            clearSpawnArea(swarmSpawn);
+            clearSpawnArea(hunterSpawn);
             swarmPlayer.teleport(swarmSpawn);
             hunterPlayer.teleport(hunterSpawn);
         }
@@ -1614,6 +1617,24 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (contactDamageTask != null) {
             contactDamageTask.cancel();
             contactDamageTask = null;
+        }
+    }
+
+    // スポーン地点周辺の障害物を除去（3x3x3の空間を確保）
+    void clearSpawnArea(Location center) {
+        World world = center.getWorld();
+        int cx = center.getBlockX();
+        int cy = center.getBlockY();
+        int cz = center.getBlockZ();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                for (int dy = 0; dy <= 2; dy++) {
+                    Block b = world.getBlockAt(cx + dx, cy + dy, cz + dz);
+                    if (b.getType() != Material.AIR) {
+                        b.setType(Material.AIR);
+                    }
+                }
+            }
         }
     }
 
