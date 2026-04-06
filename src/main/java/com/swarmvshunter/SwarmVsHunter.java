@@ -895,12 +895,20 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     void recruitFollowingMobs(EntityType type) {
         followingMobs.clear();
         try {
+            // Pass 1: 対象mobを収集
+            List<Mob> recruits = new ArrayList<>();
             for (var entity : swarmPlayer.getWorld().getNearbyEntities(swarmPlayer.getLocation(), aggroRadius, aggroRadius, aggroRadius)) {
                 if (entity.getType() == type && fieldMobs.contains(entity.getUniqueId()) && entity instanceof Mob mob) {
-                    followingMobs.add(entity.getUniqueId());
-                    mob.setTarget(null);
-                    // ピグリン系の集団怒りをクリア
-                    clearMobAnger(mob);
+                    recruits.add(mob);
+                }
+            }
+            // Pass 2: 怒りクリア（respawnでUUID変わる場合あり）→ followingMobsに登録
+            for (Mob mob : recruits) {
+                mob.setTarget(null);
+                clearMobAnger(mob); // Piglin/Hoglinはrespawnされ、followingMobsに新UUIDが入る
+                // respawnされなかったmob（PigZombie等）はここで追加
+                if (mob.isValid() && !mob.isDead()) {
+                    followingMobs.add(mob.getUniqueId());
                 }
             }
         } catch (Exception e) {
@@ -915,12 +923,47 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             pigZombie.setAngry(false);
             pigZombie.setAnger(0);
         }
-        // Piglin/Hoglin: Brain内部の怒り状態をリセットするためAIを一瞬無効→有効
+        // Piglin/Hoglin: Brain系は内部メモリに怒りが残るためAPIでは消せない
+        // → 削除して同じ位置に新品を再スポーンする
         if (mob instanceof Piglin || mob instanceof Hoglin) {
-            mob.setAware(false);
+            respawnMobClean(mob);
+        }
+    }
+
+    // Brain系mobの怒りリセット: 削除→再スポーンで完全に怒り状態を消す
+    void respawnMobClean(Mob oldMob) {
+        Location loc = oldMob.getLocation();
+        EntityType type = oldMob.getType();
+        UUID oldId = oldMob.getUniqueId();
+        fieldMobs.remove(oldId);
+        followingMobs.remove(oldId);
+        oldMob.remove();
+
+        try {
+            Entity newEntity = loc.getWorld().spawnEntity(loc, type);
+            if (newEntity instanceof Mob newMob) {
+                fieldMobs.add(newEntity.getUniqueId());
+                followingMobs.add(newEntity.getUniqueId());
+                newMob.setTarget(null);
+            }
+        } catch (Exception e) {
+            // スポーン失敗は無視
+        }
+    }
+
+    // イベントハンドラ内から安全に怒りクリア（次tickで実行、respawnが必要な場合も安全）
+    void clearMobAngerDeferred(Mob mob) {
+        // PigZombie: APIで即座にクリア可能（respawn不要）
+        if (mob instanceof PigZombie pigZombie) {
+            pigZombie.setAngry(false);
+            pigZombie.setAnger(0);
+            return;
+        }
+        // Piglin/Hoglin: 次tickでrespawnクリア
+        if (mob instanceof Piglin || mob instanceof Hoglin) {
             Bukkit.getScheduler().runTaskLater(this, () -> {
-                if (mob.isValid() && !mob.isDead()) {
-                    mob.setAware(true);
+                if (mob.isValid() && !mob.isDead() && fieldMobs.contains(mob.getUniqueId())) {
+                    respawnMobClean(mob);
                 }
             }, 1L);
         }
@@ -1213,9 +1256,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (followingMobs.contains(mobId)) {
             if (event.getTarget().equals(swarmPlayer)) {
                 event.setCancelled(true);
-                // ピグリン系は怒りが残り続けるので毎回クリア
+                // ピグリン系は怒りが残り続けるのでイベント外で再スポーンクリア
                 if (event.getEntity() instanceof Mob mob) {
-                    clearMobAnger(mob);
+                    clearMobAngerDeferred(mob);
                 }
             }
             return;
@@ -1225,9 +1268,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         // それ以外のターゲット設定はキャンセル（中立化）
         event.setCancelled(true);
-        // ピグリン系の集団怒りもクリア（内部状態が残るとEntityTargetEventが連続発火する）
+        // ピグリン系の集団怒りもクリア
         if (event.getEntity() instanceof Mob mob) {
-            clearMobAnger(mob);
+            clearMobAngerDeferred(mob);
         }
     }
 
