@@ -660,10 +660,14 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     }
 
     void actuallyStartGame() {
+        // ゲームモードをサバイバルに強制（アドベンチャー等だと攻撃できない）
+        if (swarmPlayer != null) swarmPlayer.setGameMode(GameMode.SURVIVAL);
+        if (hunterPlayer != null) hunterPlayer.setGameMode(GameMode.SURVIVAL);
+
         // Hunter装備
         if (hunterPlayer != null) equipHunter(hunterPlayer);
 
-        // Swarmは装備なし、最大HP1設���（満腹回復を防ぐ）
+        // Swarmは装備なし、最大HP1設定（満腹回復を防ぐ）
         if (swarmPlayer != null) {
             swarmPlayer.getInventory().clear();
             AttributeInstance maxHpAttr = swarmPlayer.getAttribute(Attribute.MAX_HEALTH);
