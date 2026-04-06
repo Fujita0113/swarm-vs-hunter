@@ -117,6 +117,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     Set<UUID> swarmAllyMobs = new HashSet<>();
     int eggStealRadius = 10;
 
+    // 馬突進攻撃タスク
+    BukkitRunnable horseChargeTask = null;
+    Map<UUID, org.bukkit.util.Vector> horseLastPos = new HashMap<>(); // player UUID → 前tick位置
+
     // タイマー・勝利条件
     BukkitRunnable gameTimer = null;
     int gameTimeRemaining = 180;
@@ -346,7 +350,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 if (meta != null) {
                     meta.setDisplayName(ChatColor.WHITE + type.name());
                     if (NON_COMBAT_MOBS.contains(type)) {
-                        meta.setLore(List.of(ChatColor.GREEN + "非戦闘mob"));
+                        String desc = getNonCombatMobDescription(type);
+                        meta.setLore(List.of(ChatColor.GREEN + "非戦闘mob", ChatColor.YELLOW + desc));
                     } else {
                         meta.setLore(List.of(ChatColor.RED + "戦闘mob"));
                     }
@@ -710,6 +715,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
 
         gameState = GameState.PLAYING;
+
+        // 馬突進攻撃タスク開始
+        startHorseChargeTask();
+
         if (debugMode) {
             sendMessageToPlayer(activePlayer, ChatColor.GREEN + "[デバッグ] ゲーム開始！ /svh stop で終了");
         } else {
@@ -1073,6 +1082,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         // 接触ダメージタスク停止
         stopContactDamageTask();
+        // 馬突進タスク停止
+        stopHorseChargeTask();
 
         // ステート初期化
         swarmDisguiseType = null;
@@ -1460,6 +1471,26 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         };
     }
 
+    // 非戦闘mobのGUI説明文
+    static String getNonCombatMobDescription(EntityType type) {
+        return switch (type) {
+            case PIG -> "撃破で焼き豚ドロップ";
+            case COW -> "撃破で焼き牛肉ドロップ";
+            case MOOSHROOM -> "撃破で焼き牛肉ドロップ";
+            case SHEEP -> "撃破で焼き羊肉ドロップ";
+            case CHICKEN -> "撃破で焼き鶏肉ドロップ";
+            case RABBIT -> "撃破で焼き兎肉ドロップ";
+            case HORSE -> "騎乗可能！突進攻撃で敵を吹き飛ばせ";
+            case DONKEY -> "騎乗可能！突進攻撃で敵を吹き飛ばせ";
+            case CAT -> "素早い偵察型";
+            case PARROT -> "空を飛べる偵察型";
+            case FOX -> "素早い俊足型";
+            case FROG -> "ジャンプが得意";
+            case TURTLE -> "遅いが硬い";
+            default -> "フィールドギミック";
+        };
+    }
+
     // SVH卵かどうかの判定
     boolean isSvhAllyEgg(ItemStack item) {
         if (item == null || !item.hasItemMeta()) return false;
@@ -1476,6 +1507,27 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 mob.setTarget(null);
                 mob.setCustomName(ChatColor.GREEN + player.getName() + "の味方");
                 mob.setCustomNameVisible(true);
+            }
+            // 馬/ロバ: 懐かせて鞍装備 → 即騎乗
+            if (entity instanceof org.bukkit.entity.AbstractHorse horse) {
+                horse.setTamed(true);
+                horse.setOwner(player);
+                horse.getInventory().setSaddle(new ItemStack(Material.SADDLE));
+                // 馬のステータスを強化（速い＋ジャンプ力高い）
+                AttributeInstance speedAttr = horse.getAttribute(Attribute.MOVEMENT_SPEED);
+                if (speedAttr != null) speedAttr.setBaseValue(0.35); // バニラ平均0.225 → 1.5倍強
+                AttributeInstance jumpAttr = horse.getAttribute(Attribute.JUMP_STRENGTH);
+                if (jumpAttr != null) jumpAttr.setBaseValue(0.8); // バニラ平均0.7
+                // 1tick後に自動騎乗（スポーン直後は乗れないため）
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (horse.isValid() && player.isOnline()) {
+                            horse.addPassenger(player);
+                            player.sendMessage(ChatColor.GOLD + "馬に騎乗！ダッシュで敵に突進してダメージを与えろ！");
+                        }
+                    }
+                }.runTaskLater(this, 1);
             }
             UUID allyId = entity.getUniqueId();
             allyMobOwner.put(allyId, player);
@@ -2093,6 +2145,71 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             contactDamageTask.cancel();
             contactDamageTask = null;
         }
+    }
+
+    // === 馬突進攻撃タスク ===
+    // 騎乗中の馬が一定速度以上で移動していると、周囲の敵にダメージ+ノックバック
+    void startHorseChargeTask() {
+        stopHorseChargeTask();
+        horseLastPos.clear();
+        horseChargeTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (gameState != GameState.PLAYING) { cancel(); return; }
+                for (Player player : new Player[]{swarmPlayer, hunterPlayer}) {
+                    if (player == null || !player.isOnline()) continue;
+                    Entity vehicle = player.getVehicle();
+                    if (!(vehicle instanceof org.bukkit.entity.AbstractHorse horse)) {
+                        horseLastPos.remove(player.getUniqueId());
+                        continue;
+                    }
+                    // 味方馬かチェック
+                    if (!allyMobOwner.containsKey(horse.getUniqueId())) {
+                        horseLastPos.remove(player.getUniqueId());
+                        continue;
+                    }
+
+                    org.bukkit.util.Vector currentPos = horse.getLocation().toVector();
+                    org.bukkit.util.Vector lastPos = horseLastPos.get(player.getUniqueId());
+                    horseLastPos.put(player.getUniqueId(), currentPos);
+
+                    if (lastPos == null) continue;
+
+                    double speed = currentPos.distance(lastPos); // blocks per 5 ticks
+                    if (speed < 0.8) continue; // 十分な速度が出ていない場合はスキップ
+
+                    // 突進判定: 馬の周囲2.5ブロック内の敵にダメージ
+                    org.bukkit.util.Vector moveDir = currentPos.clone().subtract(lastPos).normalize();
+                    for (Entity e : horse.getNearbyEntities(2.5, 1.5, 2.5)) {
+                        if (e.equals(player) || e.equals(horse)) continue;
+                        if (e.getUniqueId().equals(player.getUniqueId())) continue;
+                        // 味方mobは除外
+                        if (allyMobOwner.containsKey(e.getUniqueId()) && allyMobOwner.get(e.getUniqueId()).equals(player)) continue;
+                        if (followingMobs.contains(e.getUniqueId())) continue;
+                        if (!(e instanceof LivingEntity living)) continue;
+
+                        // ダメージ + ノックバック
+                        double damage = 4.0 + speed * 2; // 速度に応じてダメージ増加（4〜8程度）
+                        living.damage(Math.min(damage, 10.0), player);
+                        org.bukkit.util.Vector kb = moveDir.clone().multiply(1.5).setY(0.4);
+                        living.setVelocity(kb);
+
+                        // エフェクト
+                        horse.getWorld().playSound(horse.getLocation(), Sound.ENTITY_RAVAGER_STEP, 1.0f, 0.8f);
+                        horse.getWorld().spawnParticle(Particle.CLOUD, living.getLocation().add(0, 0.5, 0), 8, 0.3, 0.2, 0.3, 0.05);
+                    }
+                }
+            }
+        };
+        horseChargeTask.runTaskTimer(this, 5, 5); // 5tick間隔でチェック
+    }
+
+    void stopHorseChargeTask() {
+        if (horseChargeTask != null) {
+            horseChargeTask.cancel();
+            horseChargeTask = null;
+        }
+        horseLastPos.clear();
     }
 
     // スポーン地点周辺の障害物を除去（3x3x3の空間を確保）
