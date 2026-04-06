@@ -811,8 +811,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                                     mob.setCustomName(ChatColor.RED + swarmPlayer.getName() + "の味方");
                                     mob.setTarget(null);
                                 }
-                                sendMessageToPlayer(swarmPlayer, ChatColor.GREEN + "Hunterの味方mobを寝取った！");
-                                sendMessageToPlayer(hunterPlayer, ChatColor.RED + "味方mobがSwarmに寝取られた！");
+                                sendMessageToPlayer(swarmPlayer, ChatColor.GREEN + "Hunterの味方mobが寝返った！");
+                                sendMessageToPlayer(hunterPlayer, ChatColor.RED + "味方mobがSwarmに寝返った！");
                             }
                         }
                     }
