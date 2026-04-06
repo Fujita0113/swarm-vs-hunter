@@ -898,10 +898,31 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             for (var entity : swarmPlayer.getWorld().getNearbyEntities(swarmPlayer.getLocation(), aggroRadius, aggroRadius, aggroRadius)) {
                 if (entity.getType() == type && fieldMobs.contains(entity.getUniqueId()) && entity instanceof Mob mob) {
                     followingMobs.add(entity.getUniqueId());
+                    mob.setTarget(null);
+                    // ピグリン系の集団怒りをクリア
+                    clearMobAnger(mob);
                 }
             }
         } catch (Exception e) {
             // getNearbyEntitiesがテスト環境で動かない場合は無視
+        }
+    }
+
+    // ピグリン・ゾンビピグリン等の内部怒り状態をクリア
+    void clearMobAnger(Mob mob) {
+        // ZombifiedPiglin（PigZombie API）: setAngry/setAnger で怒り解除
+        if (mob instanceof PigZombie pigZombie) {
+            pigZombie.setAngry(false);
+            pigZombie.setAnger(0);
+        }
+        // Piglin: Brain内部の怒り状態をリセットするためAIを一瞬無効→有効
+        if (mob instanceof Piglin) {
+            mob.setAware(false);
+            Bukkit.getScheduler().runTaskLater(this, () -> {
+                if (mob.isValid() && !mob.isDead()) {
+                    mob.setAware(true);
+                }
+            }, 1L);
         }
     }
 
@@ -1192,6 +1213,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (followingMobs.contains(mobId)) {
             if (event.getTarget().equals(swarmPlayer)) {
                 event.setCancelled(true);
+                // ピグリン系は怒りが残り続けるので毎回クリア
+                if (event.getEntity() instanceof Mob mob) {
+                    clearMobAnger(mob);
+                }
             }
             return;
         }
@@ -1200,6 +1225,10 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
 
         // それ以外のターゲット設定はキャンセル（中立化）
         event.setCancelled(true);
+        // ピグリン系の集団怒りもクリア（内部状態が残るとEntityTargetEventが連続発火する）
+        if (event.getEntity() instanceof Mob mob) {
+            clearMobAnger(mob);
+        }
     }
 
     // === Swarm右クリック能力（クールタイムなし） ===
