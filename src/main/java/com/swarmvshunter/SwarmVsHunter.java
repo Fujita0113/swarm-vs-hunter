@@ -1273,7 +1273,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 if (gameState != GameState.PLAYING || swarmDisguiseType == null) { cancel(); return; }
                 tick++;
                 Location current = swarmPlayer.getLocation().add(0, 1, 0);
-                world.spawnParticle(Particle.FLASH, current, 1, 0, 0, 0, 0);
+                world.spawnParticle(Particle.EXPLOSION, current, 1, 0, 0, 0, 0);
                 world.spawnParticle(Particle.SMOKE, current, 8, 0.3, 0.5, 0.3, 0.02);
                 if (tick >= 15) {
                     cancel();
