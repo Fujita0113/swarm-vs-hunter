@@ -908,15 +908,15 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
-    // ピグリン・ゾンビピグリン等の内部怒り状態をクリア
+    // ピグリン・ゾンビピグリン・ホグリン等の内部怒り状態をクリア
     void clearMobAnger(Mob mob) {
         // ZombifiedPiglin（PigZombie API）: setAngry/setAnger で怒り解除
         if (mob instanceof PigZombie pigZombie) {
             pigZombie.setAngry(false);
             pigZombie.setAnger(0);
         }
-        // Piglin: Brain内部の怒り状態をリセットするためAIを一瞬無効→有効
-        if (mob instanceof Piglin) {
+        // Piglin/Hoglin: Brain内部の怒り状態をリセットするためAIを一瞬無効→有効
+        if (mob instanceof Piglin || mob instanceof Hoglin) {
             mob.setAware(false);
             Bukkit.getScheduler().runTaskLater(this, () -> {
                 if (mob.isValid() && !mob.isDead()) {
