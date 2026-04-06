@@ -482,6 +482,7 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.GREEN + "" + number + "体目: " + type.name());
+            meta.setLore(java.util.Collections.singletonList(ChatColor.GRAY + "クリックで選択解除"));
             meta.addEnchant(Enchantment.UNBREAKING, 1, true);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
             item.setItemMeta(meta);
@@ -507,7 +508,30 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         event.setCancelled(true);
 
         int slot = event.getRawSlot();
-        // 5行目（区切り線）・6行目（選択スロット）のクリックは無視
+
+        // 6行目の選択スロットをクリック → その選択を解除
+        if (slot >= 45 && slot <= 53) {
+            List<EntityType> selections = playerSelections.get(player);
+            if (selections == null || selections.isEmpty()) return;
+            int[] selectSlots;
+            if (debugMode) {
+                selectSlots = new int[]{46, 47, 49, 50};
+            } else {
+                selectSlots = new int[]{SLOT_SELECT_1, SLOT_SELECT_2};
+            }
+            for (int i = 0; i < selectSlots.length; i++) {
+                if (slot == selectSlots[i] && i < selections.size()) {
+                    EntityType removed = selections.remove(i);
+                    player.sendMessage(ChatColor.YELLOW + removed.name() + " の選択を解除しました");
+                    notifyOtherPlayer(player, removed, false);
+                    refreshGUI(player);
+                    return;
+                }
+            }
+            return;
+        }
+
+        // 5行目（区切り線）のクリックは無視
         if (slot >= SEPARATOR_ROW_START) return;
 
         ItemStack clicked = event.getCurrentItem();

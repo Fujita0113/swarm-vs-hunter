@@ -57,6 +57,18 @@ JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 - ユーザーは「最終形」の部分にのみフィードバックを出す。暫定部分は後のマイルストーンで変わるため今は不要
 - これにより手戻りを最小化しつつ、早い段階でイメージのズレを修正できる
 
+## デバッグモードと2人テストの区別
+
+- 開発中は `/svh debug <swarm|hunter>` で1人テストを基本とする
+- TESTING.md にテスト項目を書く際、デバッグモードではテストできない項目には **`[2人必須]`** タグをつけること
+- 以下はデバッグモードではテスト不可能なため、必ず `[2人必須]` にする:
+  - mob選択GUIの相互通知（`notifyOtherPlayer`, `bothPlayersReady` の通常モード分岐）
+  - HunterがSwarmを攻撃した時の処理（`onEntityDamageByEntity` の Case 3: revertSwarm）
+  - Swarm能力のHunterへのダメージ判定（全能力メソッドの `hunterPlayer != null` ガード内）
+  - 勝敗判定・タイマー（実装時に2人モード前提で作る）
+  - 寝取りメカニクス（Swarm/Hunter両方の味方mob管理が必要）
+  - 卵システムの対人戦での挙動（護衛mobがHunterについてくる等）
+
 ## 主要なゲームメカニクス（実装時の注意点）
 
 - **全mobの中立化**: バニラ敵対mob（ゾンビ等）もフィールド内では中立にする。EntityTargetEventをキャンセルして制御。
