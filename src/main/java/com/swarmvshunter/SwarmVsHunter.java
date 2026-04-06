@@ -15,6 +15,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.util.Vector;
@@ -1168,6 +1169,27 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         useAbility(swarmDisguiseType);
     }
 
+    // ウィッチ: ポーション無限補充（投げたら同じものを1tick後に補充）
+    @EventHandler
+    public void onPotionThrow(ProjectileLaunchEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (!(event.getEntity() instanceof ThrownPotion potion)) return;
+        if (!(potion.getShooter() instanceof Player shooter)) return;
+        if (!shooter.equals(swarmPlayer)) return;
+        if (swarmDisguiseType != EntityType.WITCH) return;
+
+        // 投げたポーションと同じものを1tick後に補充
+        ItemStack thrownItem = potion.getItem().clone();
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (swarmPlayer != null && swarmPlayer.isOnline() && swarmDisguiseType == EntityType.WITCH) {
+                    swarmPlayer.getInventory().addItem(thrownItem);
+                }
+            }
+        }.runTaskLater(this, 1);
+    }
+
     void useAbility(EntityType type) {
         switch (type) {
             case CREEPER -> abilityCreeper();
@@ -1310,11 +1332,16 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 swarmPlayer.getInventory().addItem(new ItemStack(Material.ENDER_PEARL, 5));
             }
             case WITCH -> {
+                // 攻撃系
                 swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.POISON, 100, 0));
-                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.POISON, 100, 0));
-                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.SLOWNESS, 100, 1));
                 swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.INSTANT_DAMAGE, 1, 0));
+                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.SLOWNESS, 100, 1));
                 swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.WEAKNESS, 100, 0));
+                // 変わり種（自分や味方に投げても面白い）
+                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.SPEED, 200, 1));
+                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.JUMP_BOOST, 200, 1));
+                swarmPlayer.getInventory().addItem(makeSplashPotion(PotionEffectType.LEVITATION, 60, 0));
+                // ポーションは無限（投げたら補充される: onPotionThrowで処理）
             }
             case BLAZE -> {
                 swarmPlayer.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 0, false, false));
