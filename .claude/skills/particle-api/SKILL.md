@@ -1,7 +1,7 @@
 ---
 name: particle-api
 description: Particle APIを使うとき（パーティクル、エフェクト、Particle.DUST、Particle.EXPLOSION）に参照する。Paper 1.21.xの既知の罠と正しい実装パターン。
-user-invocable: false
+user-invocable: true
 ---
 
 # Particle API（Paper 1.21.x）

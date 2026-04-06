@@ -1,7 +1,7 @@
 ---
 name: potion-api
 description: ポーション・ThrownPotion・PotionSplashEventを実装するとき参照する。スプラッシュポーションの自爆バグ防止パターン。
-user-invocable: false
+user-invocable: true
 ---
 
 # ポーション / ThrownPotion

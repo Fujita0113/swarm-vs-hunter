@@ -11,6 +11,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
@@ -104,6 +108,20 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     // 接触ダメージタスク（スライム、ブレイズ用）
     BukkitRunnable contactDamageTask = null;
 
+    // 卵システム: 味方mob管理
+    Map<UUID, Player> allyMobOwner = new HashMap<>(); // ally mob UUID → owner
+    Set<UUID> hunterAllyMobs = new HashSet<>();
+    Set<UUID> swarmAllyMobs = new HashSet<>();
+    int eggStealRadius = 10;
+
+    // タイマー・勝利条件
+    BukkitRunnable gameTimer = null;
+    int gameTimeRemaining = 180;
+    int gameDurationSeconds = 180;
+    int maxDeaths = 3;
+    int hunterArrowCount = 16;
+    int hunterFoodCount = 4;
+
     // 右クリック能力を持つmob（それ以外はアイテム付与 or パッシブのみ）
     static final Set<EntityType> RIGHT_CLICK_ABILITY_MOBS = Set.of(
             EntityType.CREEPER, EntityType.BLAZE, EntityType.RAVAGER
@@ -170,6 +188,20 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     public void onEnable() {
         getLogger().info("SwarmVsHunter v3.0 enabled!");
         getServer().getPluginManager().registerEvents(this, this);
+        loadConfig();
+    }
+
+    void loadConfig() {
+        saveDefaultConfig();
+        var config = getConfig();
+        fieldSize = config.getInt("field.size", 70);
+        mobCountPerType = config.getInt("field.mob_count_per_type", 8);
+        aggroRadius = config.getInt("swarm.aggro_radius", 20);
+        maxDeaths = config.getInt("swarm.max_deaths", 3);
+        gameDurationSeconds = config.getInt("game.duration_seconds", 180);
+        eggStealRadius = config.getInt("egg.steal_radius", 10);
+        hunterArrowCount = config.getInt("hunter.arrow_count", 16);
+        hunterFoodCount = config.getInt("hunter.food_count", 4);
     }
 
     @Override
@@ -674,27 +706,114 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             sendMessageToPlayer(hunterPlayer, ChatColor.GREEN + "ゲーム開始！");
         }
 
-        // 追従タスク: 10tick(0.5秒)ごとに追従mobをSwarmに向かわせる
+        // タイマー開始（デバッグモードでは無効）
+        if (!debugMode) {
+            gameTimeRemaining = gameDurationSeconds;
+            gameTimer = new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (gameState != GameState.PLAYING) { cancel(); return; }
+                    gameTimeRemaining--;
+
+                    // アクションバーに残り時間表示
+                    int min = gameTimeRemaining / 60;
+                    int sec = gameTimeRemaining % 60;
+                    String timeStr = String.format("%d:%02d", min, sec);
+                    ChatColor color = gameTimeRemaining <= 30 ? ChatColor.RED : ChatColor.GREEN;
+                    String bar = color + "残り時間: " + timeStr + ChatColor.GRAY + " | " +
+                            ChatColor.YELLOW + "Swarm死亡: " + swarmDeathCount + "/" + maxDeaths;
+                    for (Player p : new Player[]{swarmPlayer, hunterPlayer}) {
+                        if (p != null && p.isOnline()) {
+                            p.sendActionBar(net.kyori.adventure.text.Component.text(bar));
+                        }
+                    }
+
+                    // タイムアップ → Hunter勝利
+                    if (gameTimeRemaining <= 0) {
+                        cancel();
+                        endGame("Hunter", "3分間生き延びた！（タイムアップ）");
+                    }
+                }
+            };
+            gameTimer.runTaskTimer(this, 20, 20); // 1秒ごと
+        }
+
+        // 追従タスク: 10tick(0.5秒)ごとに追従mob・味方mobをオーナーに向かわせる
         followTask = new BukkitRunnable() {
             @Override
             public void run() {
-                if (gameState != GameState.PLAYING || swarmPlayer == null) {
-                    cancel();
-                    return;
-                }
-                if (followingMobs.isEmpty()) return;
+                if (gameState != GameState.PLAYING) { cancel(); return; }
                 try {
-                    World world = swarmPlayer.getWorld();
-                    Location swarmLoc = swarmPlayer.getLocation();
-                    for (UUID id : new HashSet<>(followingMobs)) {
-                        Entity entity = world.getEntity(id);
-                        if (entity instanceof Mob mob && mob.isValid()) {
-                            // ターゲットがなければSwarmの方に歩かせる
-                            if (mob.getTarget() == null) {
-                                mob.getPathfinder().moveTo(swarmLoc);
+                    // Swarm追従mob
+                    if (swarmPlayer != null && !followingMobs.isEmpty()) {
+                        World world = swarmPlayer.getWorld();
+                        Location swarmLoc = swarmPlayer.getLocation();
+                        for (UUID id : new HashSet<>(followingMobs)) {
+                            Entity entity = world.getEntity(id);
+                            if (entity instanceof Mob mob && mob.isValid()) {
+                                if (mob.getTarget() == null) {
+                                    mob.getPathfinder().moveTo(swarmLoc);
+                                }
+                            } else {
+                                followingMobs.remove(id);
                             }
-                        } else {
-                            followingMobs.remove(id);
+                        }
+                    }
+
+                    // 味方mob追従（Hunterの味方）
+                    if (hunterPlayer != null && !hunterAllyMobs.isEmpty()) {
+                        World world = hunterPlayer.getWorld();
+                        Location hunterLoc = hunterPlayer.getLocation();
+                        for (UUID id : new HashSet<>(hunterAllyMobs)) {
+                            Entity entity = world.getEntity(id);
+                            if (entity instanceof Mob mob && mob.isValid()) {
+                                if (mob.getTarget() == null) {
+                                    mob.getPathfinder().moveTo(hunterLoc);
+                                }
+                            } else {
+                                hunterAllyMobs.remove(id);
+                                allyMobOwner.remove(id);
+                            }
+                        }
+                    }
+
+                    // 味方mob追従（Swarmの味方）
+                    if (swarmPlayer != null && !swarmAllyMobs.isEmpty()) {
+                        Location swarmLoc = swarmPlayer.getLocation();
+                        World world = swarmPlayer.getWorld();
+                        for (UUID id : new HashSet<>(swarmAllyMobs)) {
+                            Entity entity = world.getEntity(id);
+                            if (entity instanceof Mob mob && mob.isValid()) {
+                                if (mob.getTarget() == null) {
+                                    mob.getPathfinder().moveTo(swarmLoc);
+                                }
+                            } else {
+                                swarmAllyMobs.remove(id);
+                                allyMobOwner.remove(id);
+                            }
+                        }
+                    }
+
+                    // 寝取りチェック（Swarm変身中、同種のHunter味方mobが近くにいたら奪う）
+                    if (swarmPlayer != null && swarmDisguiseType != null && hunterPlayer != null) {
+                        Location swarmLoc = swarmPlayer.getLocation();
+                        World world = swarmPlayer.getWorld();
+                        for (UUID id : new HashSet<>(hunterAllyMobs)) {
+                            Entity entity = world.getEntity(id);
+                            if (entity == null || !entity.isValid()) continue;
+                            if (entity.getType() != swarmDisguiseType) continue;
+                            if (entity.getLocation().distance(swarmLoc) <= eggStealRadius) {
+                                // 寝取り発動！
+                                hunterAllyMobs.remove(id);
+                                swarmAllyMobs.add(id);
+                                allyMobOwner.put(id, swarmPlayer);
+                                if (entity instanceof Mob mob) {
+                                    mob.setCustomName(ChatColor.RED + swarmPlayer.getName() + "の味方");
+                                    mob.setTarget(null);
+                                }
+                                sendMessageToPlayer(swarmPlayer, ChatColor.GREEN + "Hunterの味方mobを寝取った！");
+                                sendMessageToPlayer(hunterPlayer, ChatColor.RED + "味方mobがSwarmに寝取られた！");
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -718,8 +837,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         hunter.getInventory().setItemInOffHand(new ItemStack(Material.SHIELD));
         // 道具
         hunter.getInventory().addItem(new ItemStack(Material.BOW));
-        hunter.getInventory().addItem(new ItemStack(Material.ARROW, 16));
-        hunter.getInventory().addItem(new ItemStack(Material.BREAD, 4));
+        hunter.getInventory().addItem(new ItemStack(Material.ARROW, hunterArrowCount));
+        hunter.getInventory().addItem(new ItemStack(Material.BREAD, hunterFoodCount));
     }
 
     // === Swarm変身システム ===
@@ -819,12 +938,63 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
             swarmPlayer.teleport(new Location(fieldOrigin.getWorld(), x + 0.5, fieldOrigin.getBlockY() + 1, z + 0.5));
         }
 
-        swarmPlayer.sendMessage(ChatColor.YELLOW + "Hunterに倒された！人間に戻された (死亡: " + swarmDeathCount + "/3)");
-        sendMessageToPlayer(hunterPlayer, ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/3)");
+        swarmPlayer.sendMessage(ChatColor.YELLOW + "Hunterに倒された！人間に戻された (死亡: " + swarmDeathCount + "/" + maxDeaths + ")");
+        sendMessageToPlayer(hunterPlayer, ChatColor.GREEN + "Swarmを倒した！ (キル: " + swarmDeathCount + "/" + maxDeaths + ")");
+
+        // 勝利判定
+        checkWinConditions();
+    }
+
+    // === 勝利判定・ゲーム終了 ===
+    void endGame(String winner, String reason) {
+        if (gameState != GameState.PLAYING) return;
+
+        // タイトル表示
+        String title;
+        String subtitle;
+        if (winner.equals("Swarm")) {
+            title = ChatColor.RED + "Swarm WIN!";
+            subtitle = ChatColor.YELLOW + reason;
+        } else {
+            title = ChatColor.AQUA + "Hunter WIN!";
+            subtitle = ChatColor.YELLOW + reason;
+        }
+
+        for (Player p : new Player[]{swarmPlayer, hunterPlayer}) {
+            if (p != null && p.isOnline()) {
+                p.sendTitle(title, subtitle, 10, 60, 20);
+                p.sendMessage(ChatColor.GOLD + "===========================");
+                p.sendMessage(ChatColor.GOLD + " " + winner + " の勝利！");
+                p.sendMessage(ChatColor.GOLD + " " + reason);
+                p.sendMessage(ChatColor.GOLD + "===========================");
+            }
+        }
+
+        // 3秒後にクリーンアップ
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                stopGame();
+            }
+        }.runTaskLater(this, 60); // 3秒後
+    }
+
+    void checkWinConditions() {
+        if (gameState != GameState.PLAYING || debugMode) return;
+
+        // Hunter勝利: Swarmを規定回数倒した
+        if (swarmDeathCount >= maxDeaths) {
+            endGame("Hunter", "Swarmを" + maxDeaths + "回倒した！");
+        }
     }
 
     // === ゲーム停止・クリーンアップ ===
     void stopGame() {
+        // タイマー停止
+        if (gameTimer != null) {
+            gameTimer.cancel();
+            gameTimer = null;
+        }
         // 追従タスク停止
         if (followTask != null) {
             followTask.cancel();
@@ -838,9 +1008,25 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
                 if (entity != null) entity.remove();
             }
         }
+        // 味方mob除去
+        if (fieldOrigin != null) {
+            World allyWorld = fieldOrigin.getWorld();
+            for (UUID id : hunterAllyMobs) {
+                Entity e = allyWorld.getEntity(id);
+                if (e != null) e.remove();
+            }
+            for (UUID id : swarmAllyMobs) {
+                Entity e = allyWorld.getEntity(id);
+                if (e != null) e.remove();
+            }
+        }
+
         fieldMobs.clear();
         followingMobs.clear();
         provokedMobs.clear();
+        hunterAllyMobs.clear();
+        swarmAllyMobs.clear();
+        allyMobOwner.clear();
 
         // プレイヤー状態復元
         for (Player p : new Player[]{swarmPlayer, hunterPlayer}) {
@@ -1109,6 +1295,20 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         }
     }
 
+    // === Hunter死亡 → Swarm勝利判定 ===
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        if (gameState != GameState.PLAYING || debugMode) return;
+        if (!event.getEntity().equals(hunterPlayer)) return;
+
+        // Swarmが変身中にHunterが死亡 → Swarm勝利
+        if (swarmDisguiseType != null) {
+            // 死亡メッセージをカスタマイズ
+            event.setDeathMessage(null);
+            endGame("Swarm", "Hunterを倒した！");
+        }
+    }
+
     // === フィールド内環境ダメージ無効（全mob + Swarm変身中） ===
     private static final java.util.Set<EntityDamageEvent.DamageCause> ENVIRONMENTAL_CAUSES = java.util.EnumSet.of(
             EntityDamageEvent.DamageCause.FIRE, EntityDamageEvent.DamageCause.FIRE_TICK,
@@ -1121,8 +1321,9 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         if (gameState != GameState.PLAYING) return;
         if (!ENVIRONMENTAL_CAUSES.contains(event.getCause())) return;
 
-        // フィールドmobの環境ダメージ無効
-        if (fieldMobs.contains(event.getEntity().getUniqueId())) {
+        // フィールドmob・味方mobの環境ダメージ無効
+        UUID entityId = event.getEntity().getUniqueId();
+        if (fieldMobs.contains(entityId) || allyMobOwner.containsKey(entityId)) {
             event.setCancelled(true);
             return;
         }
@@ -1160,7 +1361,8 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     @EventHandler
     public void onEntityTransform(EntityTransformEvent event) {
         if (gameState != GameState.PLAYING) return;
-        if (fieldMobs.contains(event.getEntity().getUniqueId())) {
+        UUID eid = event.getEntity().getUniqueId();
+        if (fieldMobs.contains(eid) || allyMobOwner.containsKey(eid)) {
             event.setCancelled(true);
         }
     }
@@ -1180,6 +1382,86 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     public void onEntityExplode(EntityExplodeEvent event) {
         if (gameState != GameState.PLAYING) return;
         event.blockList().clear();
+    }
+
+    // === 卵システム: mob撃破 → 卵ドロップ ===
+    @EventHandler
+    public void onEntityDeath(EntityDeathEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        UUID mobId = event.getEntity().getUniqueId();
+        if (!fieldMobs.contains(mobId)) return;
+
+        // 通常ドロップ・経験値を無効化
+        event.getDrops().clear();
+        event.setDroppedExp(0);
+
+        // SVH卵をドロップ（カスタムloreで識別）
+        EntityType type = event.getEntityType();
+        Material eggMat = getSpawnEggMaterial(type);
+        if (eggMat == null) return;
+
+        ItemStack egg = new ItemStack(eggMat);
+        ItemMeta meta = egg.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.GOLD + "味方の卵: " + type.name());
+            meta.setLore(List.of(
+                    ChatColor.GRAY + "右クリックで味方mobを召喚",
+                    ChatColor.DARK_PURPLE + "SVH_ALLY_EGG"
+            ));
+            egg.setItemMeta(meta);
+        }
+        event.getEntity().getWorld().dropItemNaturally(event.getEntity().getLocation(), egg);
+
+        // fieldMobsから除去
+        fieldMobs.remove(mobId);
+        followingMobs.remove(mobId);
+    }
+
+    // SVH卵かどうかの判定
+    boolean isSvhAllyEgg(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return false;
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null || !meta.hasLore()) return false;
+        return meta.getLore().contains(ChatColor.DARK_PURPLE + "SVH_ALLY_EGG");
+    }
+
+    // 卵使用 → 味方mob召喚
+    void spawnAllyMob(Player player, EntityType type, Location loc) {
+        try {
+            Entity entity = loc.getWorld().spawnEntity(loc, type);
+            if (entity instanceof Mob mob) {
+                mob.setTarget(null);
+                mob.setCustomName(ChatColor.GREEN + player.getName() + "の味方");
+                mob.setCustomNameVisible(true);
+            }
+            UUID allyId = entity.getUniqueId();
+            allyMobOwner.put(allyId, player);
+            if (player.equals(hunterPlayer)) {
+                hunterAllyMobs.add(allyId);
+            } else if (player.equals(swarmPlayer)) {
+                swarmAllyMobs.add(allyId);
+            }
+            player.sendMessage(ChatColor.GREEN + type.name() + " の味方mobを召喚した！");
+        } catch (Exception e) {
+            // スポーン失敗
+        }
+    }
+
+    // === ブロック破壊・設置禁止 ===
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (fieldOrigin != null && isInsideField(event.getBlock().getLocation())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (gameState != GameState.PLAYING) return;
+        if (fieldOrigin != null && isInsideField(event.getBlock().getLocation())) {
+            event.setCancelled(true);
+        }
     }
 
     // === mob配置 ===
@@ -1234,12 +1516,23 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
         return x >= ox && x < ox + fieldSize && z >= oz && z < oz + fieldSize;
     }
 
-    // === 中立mobシステム: EntityTargetEventキャンセル（追従mob・挑発mob例外あり） ===
+    // === 中立mobシステム: EntityTargetEventキャンセル（追従mob・挑発mob・味方mob例外あり） ===
     @EventHandler
     public void onEntityTarget(EntityTargetEvent event) {
         if (gameState != GameState.PLAYING) return;
         if (event.getTarget() == null) return;
         UUID mobId = event.getEntity().getUniqueId();
+
+        // 味方mobのターゲット制御
+        if (allyMobOwner.containsKey(mobId)) {
+            Player owner = allyMobOwner.get(mobId);
+            // 味方mobはオーナーを狙わない
+            if (event.getTarget().equals(owner)) {
+                event.setCancelled(true);
+            }
+            return; // 味方mobは自由にターゲット可能（オーナー以外）
+        }
+
         if (!fieldMobs.contains(mobId)) return;
 
         // 追従mobはSwarm以外へのターゲット設定を許可（Swarmが指令した攻撃対象を狙える）
@@ -1270,12 +1563,41 @@ public class SwarmVsHunter extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (gameState != GameState.PLAYING) return;
-        if (!event.getPlayer().equals(swarmPlayer)) return;
-        if (swarmDisguiseType == null) return;
-        if (!RIGHT_CLICK_ABILITY_MOBS.contains(swarmDisguiseType)) return;
 
         // 右クリックのみ
         if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+
+        Player player = event.getPlayer();
+
+        // SVH卵の使用（全プレイヤー共通）
+        if (isSvhAllyEgg(event.getItem())) {
+            event.setCancelled(true);
+            String typeName = event.getItem().getType().name().replace("_SPAWN_EGG", "");
+            try {
+                EntityType type = EntityType.valueOf(typeName);
+                Location spawnLoc = player.getLocation().add(player.getLocation().getDirection().normalize().multiply(2));
+                spawnLoc.setY(player.getLocation().getY());
+                spawnAllyMob(player, type, spawnLoc);
+                // 卵を1個消費
+                event.getItem().setAmount(event.getItem().getAmount() - 1);
+            } catch (IllegalArgumentException e) {
+                // invalid type
+            }
+            return;
+        }
+
+        // スポーンエッグの通常使用を禁止（フィールド内）
+        if (event.getItem() != null && event.getItem().getType().name().endsWith("_SPAWN_EGG")) {
+            if (fieldOrigin != null && isInsideField(player.getLocation())) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+
+        // Swarm右クリック能力
+        if (!player.equals(swarmPlayer)) return;
+        if (swarmDisguiseType == null) return;
+        if (!RIGHT_CLICK_ABILITY_MOBS.contains(swarmDisguiseType)) return;
 
         // アイテムを持っている場合はそのアイテムの通常動作を優先（弓、エンダーパール等）
         if (event.getItem() != null && event.getItem().getType() != Material.AIR) return;

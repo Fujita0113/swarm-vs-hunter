@@ -78,9 +78,19 @@ JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.10.7-hotspot" mvn clean package
 - **寝取り**: Swarmが同種mob変身中にHunterの味方mob近くに来ると、その味方がSwarm側に寝返る。
 - **ブロック破壊・設置は不可**: BlockBreakEvent, BlockPlaceEventをキャンセル。
 
-## Skills（実装ノウハウ集）
+## 既知の落とし穴（毎回確認）
 
-`.claude/skills/` に実装中に発見した落とし穴・正しいパターンを蓄積している（Claude Code標準のskills機能）。
-descriptionに基づき関連する実装時に自動参照される。
-- **ハマった時**: 解決したら該当スキルに追記（なければ `.claude/skills/<topic>/SKILL.md` を新規作成）すること
-- 形式: 「やるな / こうしろ / コード例」で簡潔に書く
+- `Particle.FLASH` は使うな → `Particle.EXPLOSION` か `Particle.DUST` + `DustOptions`
+- `Particle.ENTITY_EFFECT` は `DustOptions` 必須、省略すると実行時エラー
+- `ThrownPotion` は spawn 後に `setShooter(player)` 必須、忘れると自爆
+- `PotionSplashEvent` で自分と味方を `setIntensity(entity, 0)` で除外必須
+- ホグリンはネザー外で `EntityTransformEvent` をキャンセルしないとゾグリン化する
+- エンダーマンは `EntityTeleportEvent` をキャンセルしないと雨天で無限テレポート
+- ゲーム開始時に `GameMode.SURVIVAL` を明示セットしないと mob を攻撃できない
+- 爆発のブロック破壊のみ無効化 → `EntityExplodeEvent.blockList().clear()`
+
+## Skills（実装パターン集）
+
+`.claude/skills/` にコード例つきの実装パターンを蓄積。`/skill名` で呼び出せる。
+- **ハマった時**: 上の落とし穴リストに1行追加 + 該当スキルにコード例を追記
+- 新規作成時は `.claude/skills/<topic>/SKILL.md` に「やるな / こうしろ / コード例」形式で書く

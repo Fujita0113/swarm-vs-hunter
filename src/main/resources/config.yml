@@ -1,0 +1,24 @@
+# Swarm vs Hunter v3 - バランスパラメータ
+
+# フィールド設定
+field:
+  size: 70                    # フィールドの一辺のブロック数
+  mob_count_per_type: 8       # 各mob種のスポーン数 (4種×8体=32体)
+
+# Swarm設定
+swarm:
+  aggro_radius: 20            # 変身時に同種mobが追従を開始する範囲（ブロック）
+  max_deaths: 3               # Hunterがこの回数Swarmを倒せば勝利
+
+# ゲーム設定
+game:
+  duration_seconds: 180       # ゲーム制限時間（秒）
+
+# Hunter設定
+hunter:
+  arrow_count: 16             # Hunterの初期矢数
+  food_count: 4               # Hunterの初期食料数（パン）
+
+# 卵システム
+egg:
+  steal_radius: 10            # 寝取りが発動する範囲（ブロック）
